@@ -8,7 +8,7 @@
 	const collection = $derived(session.collections.find((c) => c.name === page.params.name) ?? null);
 </script>
 
-<a class="back" href={resolve('/collections/[name]', { name: page.params.name ?? '' })}><Icon name="chevronLeft" size={16} />Records</a>
+<a class="back" href={resolve('/collections/[name]', { name: page.params.name ?? '' })}><Icon name="chevronLeft" />Records</a>
 {#if collection}
 	{#key collection.id + collection.updated}
 		<CollectionEditor {collection} />
@@ -21,12 +21,13 @@
 	.back {
 		display: inline-flex;
 		align-items: center;
-		gap: var(--space-1);
-		margin-bottom: var(--space-3);
-		color: var(--color-muted-foreground);
+		gap: 6px;
+		margin-bottom: 16px;
+		font-size: 14px;
+		color: var(--fg-muted);
 		text-decoration: none;
 	}
 	.back:hover {
-		color: var(--color-foreground);
+		color: var(--fg);
 	}
 </style>

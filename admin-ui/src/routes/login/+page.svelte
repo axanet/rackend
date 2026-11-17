@@ -30,7 +30,7 @@
 	}
 </script>
 
-<AuthCard title="Sign in" subtitle="rackend superuser">
+<AuthCard eyebrow="Admin" title="Sign in" subtitle="Superuser access to this rackend instance.">
 	<form onsubmit={submit}>
 		<div aria-live="polite">{#if error}<p class="error-text" role="alert">{error}</p>{/if}</div>
 		<label class="field">Email<input type="email" bind:value={email} required autocomplete="username" /></label>

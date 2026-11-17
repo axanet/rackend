@@ -76,7 +76,7 @@
 	}
 </script>
 
-<dialog bind:this={dialog} class="card" aria-labelledby="record-title" onclose={onclose}>
+<dialog bind:this={dialog} aria-labelledby="record-title" onclose={onclose}>
 	<form
 		onsubmit={(e) => {
 			e.preventDefault();
@@ -84,13 +84,16 @@
 		}}
 	>
 		<header>
-			<h2 id="record-title">{record ? 'Edit record' : `New ${collection.name} record`}</h2>
-			<button type="button" class="btn icon ghost" aria-label="Close" onclick={() => dialog?.close()}><Icon name="x" /></button>
+			<div class="title">
+				<span class="eyebrow">{collection.name}</span>
+				<h2 id="record-title">{record ? 'Edit record' : 'New record'}</h2>
+			</div>
+			<button type="button" class="btn sm icon ghost" aria-label="Close" onclick={() => dialog?.close()}><Icon name="x" /></button>
 		</header>
-		{#if record}<p class="hint mono">{record.id}</p>{/if}
+		{#if record}<p class="id mono">{record.id}</p>{/if}
 		<div aria-live="polite">
 			{#if error}
-				<p class="error-text" role="alert">
+				<p class="notice danger" role="alert">
 					{error.code === 'precondition_failed' ? 'Someone changed this record since you opened it. Close and reopen it to see the latest version.' : error.message}
 				</p>
 			{/if}
@@ -99,25 +102,28 @@
 			{#each collection.fields as f (f.name)}
 				{@const err = error?.field(f.name)}
 				{#if f.type === 'autodate'}
-					<div class="field"><span>{f.name}</span><span class="mono hint">{(record?.[f.name] as string) ?? 'set by the server'}</span></div>
+					<div class="field">
+						<span class="name">{f.name} <span class="chip">autodate</span></span>
+						<span class="mono subtle value">{(record?.[f.name] as string) ?? 'set by the server'}</span>
+					</div>
 				{:else if f.type === 'bool'}
-					<label class="check"><input type="checkbox" bind:checked={values[f.name] as boolean} /> {f.name}</label>
+					<label class="check"><input type="checkbox" bind:checked={values[f.name] as boolean} /><span class="name">{f.name}</span> <span class="chip">bool</span></label>
 				{:else if f.type === 'select' && multi(f)}
 					<fieldset class="field">
-						<legend>{f.name}{f.required ? ' *' : ''}</legend>
+						<legend class="name">{f.name}{f.required ? ' *' : ''} <span class="chip">select</span></legend>
 						<div class="choices">
 							{#each (f.values as string[]) ?? [] as v (v)}
-								<label class="check"><input type="checkbox" value={v} bind:group={values[f.name] as string[]} /> {v}</label>
+								<label class="check"><input type="checkbox" value={v} bind:group={values[f.name] as string[]} /><span class="mono">{v}</span></label>
 							{/each}
 						</div>
 						{#if err}<span class="error-text">{err}</span>{/if}
 					</fieldset>
 				{:else}
 					<label class="field">
-						<span>{f.name}{f.required ? ' *' : ''} <span class="badge">{f.type}</span></span>
+						<span class="name">{f.name}{f.required ? ' *' : ''} <span class="chip">{f.type}</span></span>
 						{#if f.type === 'select'}
 							<select bind:value={values[f.name]} aria-invalid={err ? 'true' : undefined}>
-								<option value="">—</option>
+								<option value="">none</option>
 								{#each (f.values as string[]) ?? [] as v (v)}<option value={v}>{v}</option>{/each}
 							</select>
 						{:else if f.type === 'json' || f.type === 'text'}
@@ -149,52 +155,64 @@
 	dialog {
 		width: min(640px, calc(100vw - 32px));
 		max-height: calc(100vh - 48px);
-		padding: var(--space-5);
-		color: var(--color-foreground);
-	}
-	dialog::backdrop {
-		background: rgb(0 0 0 / 0.55);
 	}
 	form {
 		display: grid;
-		gap: var(--space-3);
+		gap: 16px;
 	}
 	header,
 	footer {
 		display: flex;
 		justify-content: space-between;
-		align-items: center;
-		gap: var(--space-2);
+		align-items: flex-start;
+		gap: 8px;
 	}
 	footer {
 		justify-content: flex-end;
+		padding-top: 8px;
+	}
+	.title {
+		display: grid;
+		gap: 6px;
+	}
+	.id {
+		margin-top: -8px;
+		font-size: 12px;
+		color: var(--fg-subtle);
 	}
 	.fields {
 		display: grid;
-		gap: var(--space-3);
+		gap: 16px;
 	}
 	.field {
 		display: grid;
-		gap: var(--space-1);
-		font-size: 0.875rem;
-		font-weight: 500;
-		border: 0;
-		padding: 0;
+		gap: 6px;
 		margin: 0;
+		padding: 0;
+		border: 0;
+		font-size: 14px;
+		font-weight: 500;
+	}
+	.name {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		font-family: var(--font-mono);
+		font-size: 13px;
+	}
+	.value {
+		font-size: 13px;
 	}
 	.check {
 		display: inline-flex;
-		gap: var(--space-2);
 		align-items: center;
+		gap: 8px;
 		min-height: 32px;
-		font-size: 0.875rem;
+		font-size: 14px;
 	}
 	.choices {
 		display: flex;
 		flex-wrap: wrap;
-		gap: var(--space-3);
-	}
-	.hint {
-		margin: 0;
+		gap: 4px 16px;
 	}
 </style>

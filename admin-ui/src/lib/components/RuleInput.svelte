@@ -2,6 +2,7 @@
 	// A rule/filter editor with live compile checks against the (possibly
 	// unsaved) collection definition. Errors show the exact position.
 	import { ApiError, post } from '../api';
+	import Icon from './Icon.svelte';
 
 	let {
 		value = $bindable(),
@@ -61,7 +62,7 @@
 
 <div class="rule">
 	<div class="head">
-		<span class="label" id="{id}-label">{label}</span>
+		<span class="op mono" id="{id}-label">{label}</span>
 		<div class="modes" role="radiogroup" aria-labelledby="{id}-label">
 			{#each [['locked', 'Superusers only'], ['public', 'Anyone'], ['expr', 'Rule']] as [m, text] (m)}
 				<button
@@ -87,74 +88,85 @@
 		></textarea>
 		<div aria-live="polite" id="{id}-error">
 			{#if error}
-				<p class="error-text">
-					{error.line ? `Line ${error.line}, column ${error.column}: ` : ''}{error.message}
-				</p>
+				<p class="error-text">{error.line ? `Line ${error.line}, column ${error.column}: ` : ''}{error.message}</p>
 				{#if errorLine}
-					<pre class="caret" aria-hidden="true">{errorLine}
+					<pre class="well caret" aria-hidden="true">{errorLine}
 {' '.repeat(Math.max(0, error.column - 1))}^</pre>
 				{/if}
 			{:else if checking}
 				<p class="hint">Checking…</p>
 			{/if}
 		</div>
-	{:else if mode === 'public' && (operation === 'update' || operation === 'delete')}
-		<p class="warn"><strong>Anyone</strong>, including signed-out visitors, can {operation} every record.</p>
+	{:else if mode === 'locked'}
+		<p class="state subtle"><Icon name="lock" />Locked: superusers only.</p>
+	{:else if operation === 'update' || operation === 'delete'}
+		<p class="state write"><Icon name="alert" />Anyone, including signed-out visitors, can {operation} every record.</p>
+	{:else}
+		<p class="state subtle">Anyone, including signed-out visitors.</p>
 	{/if}
 </div>
 
 <style>
 	.rule {
 		display: grid;
-		gap: var(--space-2);
+		gap: 8px;
+	}
+	.rule + :global(.rule) {
+		padding-top: 16px;
+		border-top: 1px solid var(--border);
 	}
 	.head {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: var(--space-3);
+		gap: 12px;
 		flex-wrap: wrap;
 	}
-	.label {
-		font-weight: 600;
-		font-size: 0.875rem;
-		text-transform: capitalize;
+	.op {
+		font-size: 13px;
+		font-weight: 500;
+		color: var(--accent-text);
 	}
 	.modes {
 		display: inline-flex;
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius);
-		overflow: hidden;
+		padding: 3px;
+		gap: 2px;
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		background: var(--surface);
 	}
 	.modes button {
+		height: 28px;
+		padding: 0 12px;
 		border: 0;
+		border-radius: 999px;
 		background: transparent;
-		color: var(--color-muted-foreground);
-		font: inherit;
-		font-size: 0.8125rem;
-		padding: 4px 10px;
-		min-height: 30px;
+		color: var(--fg-muted);
+		font: 500 13px/1 var(--font-sans);
 		cursor: pointer;
+		transition:
+			color 0.15s var(--ease-out),
+			background-color 0.15s var(--ease-out);
 	}
-	.modes button + button {
-		border-left: 1px solid var(--color-border);
+	.modes button:hover {
+		color: var(--fg);
 	}
 	.modes button.active {
-		background: var(--color-muted);
-		color: var(--color-foreground);
-		font-weight: 600;
+		background: var(--bg-elev);
+		color: var(--fg);
+		box-shadow: 0 0 0 1px var(--border-strong);
 	}
 	.caret {
-		margin: 0;
-		padding: var(--space-2);
-		background: var(--color-code-bg);
-		border-radius: var(--radius-sm);
-		color: var(--color-destructive);
-		overflow-x: auto;
+		color: var(--danger);
+		margin-top: 6px;
 	}
-	.warn {
-		margin: 0;
-		color: var(--color-warning);
-		font-size: 0.8125rem;
+	.state {
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		font-size: 13px;
+	}
+	.write {
+		color: var(--write);
 	}
 </style>

@@ -3,7 +3,23 @@
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<meta name="text-scale" content="scale" />
+		<meta name="theme-color" content="#fafaf9" media="(prefers-color-scheme: light)" />
+		<meta name="theme-color" content="#0a0b0d" media="(prefers-color-scheme: dark)" />
+		<script>
+			// Resolve the theme before first paint. A stored choice wins; otherwise
+			// follow the OS and keep following it. Allowed by the admin CSP through
+			// its hash (ADR 0005).
+			(() => {
+				const root = document.documentElement;
+				const mq = matchMedia('(prefers-color-scheme: dark)');
+				const stored = () => {
+					try { const v = localStorage.getItem('theme'); return v === 'light' || v === 'dark' ? v : null; } catch { return null; }
+				};
+				const apply = () => { root.dataset.theme = stored() ?? (mq.matches ? 'dark' : 'light'); };
+				apply();
+				mq.addEventListener('change', () => { if (!stored()) apply(); });
+			})();
+		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">

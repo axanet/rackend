@@ -2,7 +2,7 @@
 
 A self-hosted, single-binary backend-as-a-service written in Rust, inspired by PocketBase: one binary (or one container) gives you a database with an admin UI, a REST API with access rules, authentication (including an OIDC provider), file storage, realtime and observability. SQLite is the only database.
 
-> Status: early development (milestones M0–M1: data safety, collections, records, access rules, audit trail, superusers, minimal admin UI).
+> Status: early development (milestones M0 and M1: data safety, collections, records, access rules, audit trail, superusers, minimal admin UI).
 
 ## Run
 
@@ -26,7 +26,7 @@ mise run test:upgrade # upgrade-path tests against committed fixtures
 mise run lint         # fmt, clippy -D warnings, cargo-deny, migration immutability
 ```
 
-Layout: `crates/core` (domain, use cases, ports — no I/O), adapter crates (`store-sqlite`, `http`, `blob-*`, …), `crates/rackend` (binary and composition root), `admin-ui` (SvelteKit). Architecture decisions are recorded in [docs/adr](docs/adr); error responses are documented in [docs/errors.md](docs/errors.md).
+Layout: `crates/core` (domain, use cases, ports; no I/O), adapter crates (`store-sqlite`, `http`, `blob-*`, …), `crates/rackend` (binary and composition root), `admin-ui` (SvelteKit). Architecture decisions are recorded in [docs/adr](docs/adr); error responses are documented in [docs/errors.md](docs/errors.md).
 
 ## License
 

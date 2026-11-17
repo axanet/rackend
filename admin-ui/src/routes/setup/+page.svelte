@@ -34,7 +34,7 @@
 	}
 </script>
 
-<AuthCard title="Set up rackend" subtitle="Create the first superuser. You can add more later.">
+<AuthCard eyebrow="First start" title="Set up rackend" subtitle="Create the first superuser. You can add more later.">
 	<form onsubmit={submit}>
 		{#if error && !Object.keys(error.errors).length}<p class="error-text" role="alert">{error.message}</p>{/if}
 		{#if !page.url.searchParams.get('token')}

@@ -1,77 +1,64 @@
-/* rackend admin — design tokens (design-system/rackend-admin/MASTER.md).
-   Dark is the default; light follows the system preference or the toggle.
-   System font stacks only: the admin CSP allows no external fonts. */
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
+
+/* rackend admin: global styles.
+   Source of truth: the vault note "17 Brand/Visual Identity" and the homepage
+   tokens (rackend-homepage/src/styles/global.css). Token values below are
+   copied from there; keep them in sync in the same change. */
+
+/* ---------------------------------------------------------------------------
+   Tokens. Colours use light-dark(), driven by color-scheme: without JS the OS
+   preference applies; the theme toggle pins it via [data-theme].
+--------------------------------------------------------------------------- */
+
 :root {
-	--font-sans: 'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-	--font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+	color-scheme: light dark;
 
-	--space-1: 4px;
-	--space-2: 8px;
-	--space-3: 12px;
-	--space-4: 16px;
-	--space-5: 24px;
-	--space-6: 32px;
-	--radius: 6px;
-	--radius-sm: 4px;
-	--dur: 180ms;
+	--font-sans: 'Geist Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+	--font-mono: 'Geist Mono Variable', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 
-	--color-background: #0f172a;
-	--color-foreground: #f8fafc;
-	--color-card: #1b2336;
-	--color-muted: #272f42;
-	--color-muted-foreground: #a3b1c6;
-	--color-border: #3b4659;
-	--color-primary: #e2e8f0;
-	--color-on-primary: #0f172a;
-	--color-accent: #22c55e;
-	--color-on-accent: #0f172a;
-	--color-destructive: #f87171;
-	--color-on-destructive: #0f172a;
-	--color-warning: #fbbf24;
-	--color-ring: #93c5fd;
-	--color-code-bg: #111a2e;
-	color-scheme: dark;
-}
+	--bg: light-dark(#fafaf9, #0a0b0d);
+	--bg-elev: light-dark(#ffffff, #101114);
+	--surface: light-dark(#f3f3f1, #14161a);
+	--surface-2: light-dark(#ebebe8, #1a1d22);
+	--border: light-dark(#e3e3df, #22252b);
+	--border-strong: light-dark(#cfcfca, #30343c);
 
-@media (prefers-color-scheme: light) {
-	:root:not([data-theme='dark']) {
-		--color-background: #f8fafc;
-		--color-foreground: #0f172a;
-		--color-card: #ffffff;
-		--color-muted: #eef2f7;
-		--color-muted-foreground: #475569;
-		--color-border: #cbd5e1;
-		--color-primary: #1e293b;
-		--color-on-primary: #ffffff;
-		--color-accent: #15803d;
-		--color-on-accent: #ffffff;
-		--color-destructive: #b91c1c;
-		--color-on-destructive: #ffffff;
-		--color-warning: #a16207;
-		--color-ring: #2563eb;
-		--color-code-bg: #f1f5f9;
-		color-scheme: light;
-	}
+	--fg: light-dark(#0b0c0e, #ededef);
+	--fg-muted: light-dark(#52555c, #a0a3ab);
+	--fg-subtle: light-dark(#6e7178, #6f727b);
+
+	/* Signal colours, one meaning each: accent = primary/live/success,
+	   write = writes and data safety, event = realtime, danger = errors. */
+	--accent: light-dark(#0a8f5f, #3ddc97);
+	--accent-text: light-dark(#06714b, #3ddc97);
+	--accent-soft: light-dark(#0a8f5f14, #3ddc9714);
+	--accent-contrast: light-dark(#ffffff, #04140d);
+	--write: light-dark(#b25f00, #f5a524);
+	--event: light-dark(#6d4fd6, #a78bfa);
+	--danger: light-dark(#c4314b, #ff6b81);
+
+	--radius-sm: 6px;
+	--radius: 10px;
+	--radius-lg: 16px;
+
+	--gutter: clamp(16px, 4vw, 32px);
+
+	--shadow-lg: 0 1px 0 light-dark(#ffffff, #ffffff0a) inset, 0 24px 60px -24px light-dark(#0b0c0e33, #000000aa);
+
+	--ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 :root[data-theme='light'] {
-	--color-background: #f8fafc;
-	--color-foreground: #0f172a;
-	--color-card: #ffffff;
-	--color-muted: #eef2f7;
-	--color-muted-foreground: #475569;
-	--color-border: #cbd5e1;
-	--color-primary: #1e293b;
-	--color-on-primary: #ffffff;
-	--color-accent: #15803d;
-	--color-on-accent: #ffffff;
-	--color-destructive: #b91c1c;
-	--color-on-destructive: #ffffff;
-	--color-warning: #a16207;
-	--color-ring: #2563eb;
-	--color-code-bg: #f1f5f9;
 	color-scheme: light;
 }
+:root[data-theme='dark'] {
+	color-scheme: dark;
+}
+
+/* ---------------------------------------------------------------------------
+   Base
+--------------------------------------------------------------------------- */
 
 *,
 *::before,
@@ -79,114 +66,247 @@
 	box-sizing: border-box;
 }
 
+html {
+	-webkit-text-size-adjust: 100%;
+	text-size-adjust: 100%;
+}
+
 html,
 body {
 	margin: 0;
-	height: 100%;
-	background: var(--color-background);
-	color: var(--color-foreground);
+	min-height: 100%;
+}
+
+body {
+	background: var(--bg);
+	color: var(--fg);
 	font-family: var(--font-sans);
-	font-size: 15px;
-	line-height: 1.5;
+	font-size: 16px;
+	line-height: 1.6;
+	font-feature-settings: 'ss01', 'cv11';
 	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	text-rendering: optimizeLegibility;
+	overflow-x: clip;
 }
 
-a {
-	color: inherit;
-}
-
-code,
-pre,
-.mono {
-	font-family: var(--font-mono);
-	font-size: 0.875em;
-}
-
-:focus-visible {
-	outline: 2px solid var(--color-ring);
-	outline-offset: 2px;
+svg {
+	display: block;
+	flex: none;
 }
 
 h1,
 h2,
 h3 {
-	line-height: 1.25;
 	margin: 0;
+	font-weight: 600;
+	letter-spacing: -0.025em;
+	line-height: 1.15;
+	text-wrap: balance;
 }
 h1 {
-	font-size: 1.25rem;
-	font-weight: 600;
+	font-size: 1.5rem;
+	letter-spacing: -0.03em;
 }
 h2 {
-	font-size: 1rem;
-	font-weight: 600;
+	font-size: 1.1rem;
+	letter-spacing: -0.02em;
 }
 
-/* Controls */
-.btn {
+p {
+	margin: 0;
+	text-wrap: pretty;
+}
+
+a {
+	color: inherit;
+	text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+	text-underline-offset: 3px;
+}
+a:hover {
+	text-decoration-color: currentColor;
+}
+
+code,
+kbd,
+pre,
+.mono {
+	font-family: var(--font-mono);
+}
+code,
+kbd,
+pre {
+	font-size: 0.9em;
+}
+
+:not(pre) > code {
+	padding: 0.1em 0.38em;
+	border: 1px solid var(--border);
+	border-radius: 5px;
+	background: var(--surface);
+	font-size: 0.85em;
+	white-space: nowrap;
+}
+
+::selection {
+	background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+	border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+	}
+}
+
+/* ---------------------------------------------------------------------------
+   Labels
+--------------------------------------------------------------------------- */
+
+/* Mono uppercase label ("eyebrow"). */
+.eyebrow {
 	display: inline-flex;
 	align-items: center;
-	gap: var(--space-2);
-	min-height: 36px;
-	padding: 0 var(--space-3);
-	border: 1px solid var(--color-border);
-	border-radius: var(--radius);
-	background: var(--color-card);
-	color: var(--color-foreground);
-	font: inherit;
-	font-weight: 500;
-	cursor: pointer;
-	transition:
-		background var(--dur),
-		border-color var(--dur);
-	white-space: nowrap;
-	text-decoration: none;
+	gap: 10px;
+	font: 500 11px/1.2 var(--font-mono);
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--fg-subtle);
 }
-.btn:hover {
-	background: var(--color-muted);
-}
-.btn:disabled {
-	opacity: 0.55;
-	cursor: not-allowed;
-}
-.btn.primary {
-	background: var(--color-accent);
-	border-color: var(--color-accent);
-	color: var(--color-on-accent);
-}
-.btn.primary:hover {
-	filter: brightness(1.08);
-}
-.btn.danger {
-	color: var(--color-destructive);
-}
-.btn.ghost {
-	background: transparent;
-	border-color: transparent;
-}
-.btn.ghost:hover {
-	background: var(--color-muted);
-}
-.btn.icon {
-	padding: 0;
-	width: 36px;
-	justify-content: center;
+.eyebrow .idx {
+	color: var(--accent-text);
 }
 
-label.field {
-	display: grid;
-	gap: var(--space-1);
+.hint {
+	color: var(--fg-muted);
+	font-size: 0.875rem;
+}
+.subtle {
+	color: var(--fg-subtle);
+}
+.error-text {
+	color: var(--danger);
 	font-size: 0.875rem;
 	font-weight: 500;
 }
-.hint {
-	color: var(--color-muted-foreground);
-	font-size: 0.8125rem;
-	font-weight: 400;
+
+/* Tiny bordered mono label, e.g. "dry run". */
+.tag {
+	display: inline-block;
+	padding: 0 6px;
+	border: 1px solid var(--border);
+	border-radius: 4px;
+	font: 11px/1.6 var(--font-mono);
+	color: var(--fg-subtle);
+	white-space: nowrap;
 }
-.error-text {
-	color: var(--color-destructive);
-	font-size: 0.8125rem;
+
+/* Mono pill on a surface well. */
+.chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 2px 9px;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	background: var(--surface);
+	font: 12px/1.5 var(--font-mono);
+	color: var(--fg-muted);
+	white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------------------
+   Buttons: 44px pills. Primary is solid --fg (inverted), secondary a ghost
+   pill outlined in --border-strong. `.sm` (34px) is for toolbars and rows.
+--------------------------------------------------------------------------- */
+
+.btn {
+	--h: 44px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	height: var(--h);
+	padding-inline: 18px;
+	border-radius: 999px;
+	border: 1px solid var(--border-strong);
+	background: transparent;
+	color: var(--fg);
+	font: 500 15px/1 var(--font-sans);
+	text-decoration: none;
+	white-space: nowrap;
+	cursor: pointer;
+	transition:
+		background-color 0.15s var(--ease-out),
+		border-color 0.15s var(--ease-out),
+		color 0.15s var(--ease-out),
+		transform 0.15s var(--ease-out);
+}
+.btn:hover {
+	background: var(--surface);
+}
+.btn:active {
+	transform: translateY(1px);
+}
+.btn:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+	transform: none;
+}
+.btn svg {
+	width: 16px;
+	height: 16px;
+}
+.btn.primary {
+	background: var(--fg);
+	border-color: var(--fg);
+	color: var(--bg);
+}
+.btn.primary:hover {
+	background: color-mix(in srgb, var(--fg) 85%, var(--bg));
+}
+.btn.danger {
+	color: var(--danger);
+}
+.btn.danger:hover {
+	border-color: var(--danger);
+	background: transparent;
+}
+.btn.ghost {
+	border-color: transparent;
+	color: var(--fg-muted);
+}
+.btn.ghost:hover {
+	color: var(--fg);
+	background: var(--surface);
+}
+.btn.sm {
+	--h: 34px;
+	padding-inline: 12px;
+	font-size: 14px;
+}
+.btn.icon {
+	width: var(--h);
+	padding: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Forms
+--------------------------------------------------------------------------- */
+
+label.field {
+	display: grid;
+	gap: 6px;
+	font-size: 0.875rem;
 	font-weight: 500;
 }
 
@@ -195,65 +315,146 @@ input[type='email'],
 input[type='password'],
 input[type='url'],
 input[type='number'],
-input[type='datetime-local'],
 input[type='search'],
 select,
 textarea {
 	width: 100%;
-	min-height: 36px;
-	padding: 6px 10px;
-	border: 1px solid var(--color-border);
+	min-height: 40px;
+	padding: 8px 12px;
+	border: 1px solid var(--border-strong);
 	border-radius: var(--radius);
-	background: var(--color-background);
-	color: var(--color-foreground);
-	font: inherit;
+	background: var(--bg-elev);
+	color: var(--fg);
+	font: 400 15px/1.4 var(--font-sans);
+	transition: border-color 0.15s var(--ease-out);
+}
+input.mono,
+textarea.mono {
+	font-family: var(--font-mono);
+	font-size: 13.5px;
+}
+input::placeholder,
+textarea::placeholder {
+	color: var(--fg-subtle);
+}
+input:hover,
+select:hover,
+textarea:hover {
+	border-color: color-mix(in srgb, var(--fg) 30%, var(--border-strong));
 }
 textarea {
-	min-height: 72px;
+	min-height: 76px;
 	resize: vertical;
 }
-input[aria-invalid='true'],
-textarea[aria-invalid='true'] {
-	border-color: var(--color-destructive);
+[aria-invalid='true'] {
+	border-color: var(--danger) !important;
 }
 input[type='checkbox'] {
-	width: 18px;
-	height: 18px;
-	accent-color: var(--color-accent);
+	width: 16px;
+	height: 16px;
+	margin: 0;
+	accent-color: var(--accent);
 }
 
+/* ---------------------------------------------------------------------------
+   Surfaces
+--------------------------------------------------------------------------- */
+
+/* Card / panel: elevated surface, 1px border, 10px radius, 24px padding. */
 .card {
-	background: var(--color-card);
-	border: 1px solid var(--color-border);
+	background: var(--bg-elev);
+	border: 1px solid var(--border);
 	border-radius: var(--radius);
+	transition: border-color 0.2s var(--ease-out);
 }
 
-.badge {
-	display: inline-block;
-	padding: 1px 6px;
-	border-radius: var(--radius-sm);
-	background: var(--color-muted);
-	color: var(--color-muted-foreground);
-	font-size: 0.75rem;
-	font-weight: 500;
-	white-space: nowrap;
+/* Card header row: 30px icon tile plus a mono group label. */
+.card-head {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+.ico {
+	display: grid;
+	place-items: center;
+	width: 30px;
+	height: 30px;
+	flex: none;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--surface);
+	color: var(--fg);
+}
+
+/* Code well inside a card. */
+.well {
+	margin: 0;
+	padding: 14px 16px;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	font: 12.5px/1.7 var(--font-mono);
+	overflow-x: auto;
+	scrollbar-width: thin;
+}
+
+/* Dashed means "not here yet": empty states and planned parts. */
+.placeholder {
+	padding: 18px;
+	border: 1px dashed var(--border-strong);
+	border-radius: var(--radius);
+	color: var(--fg-subtle);
+	font-size: 0.875rem;
+	text-align: center;
+}
+
+.notice {
+	display: flex;
+	gap: 10px;
+	align-items: flex-start;
+	padding: 12px 14px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	background: var(--bg-elev);
+	font-size: 0.875rem;
+}
+.notice svg {
+	margin-top: 3px;
+}
+.notice.danger {
+	border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+	color: var(--danger);
+}
+.notice.ok {
+	border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+	background: var(--accent-soft);
+	color: var(--accent-text);
+}
+.notice.write {
+	border-color: color-mix(in srgb, var(--write) 45%, var(--border));
+	color: var(--write);
+}
+
+dialog {
+	padding: 24px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+	background: var(--bg-elev);
+	color: var(--fg);
+	box-shadow: var(--shadow-lg);
+}
+dialog::backdrop {
+	background: light-dark(#0b0c0e33, #00000099);
 }
 
 .sr-only {
-	position: absolute;
+	position: absolute !important;
 	width: 1px;
 	height: 1px;
 	padding: 0;
 	margin: -1px;
 	overflow: hidden;
-	clip: rect(0, 0, 0, 0);
+	clip: rect(0 0 0 0);
 	white-space: nowrap;
 	border: 0;
-}
-
-@media (prefers-reduced-motion: reduce) {
-	* {
-		transition: none !important;
-		animation: none !important;
-	}
 }

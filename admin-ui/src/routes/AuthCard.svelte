@@ -1,11 +1,14 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	let { title, subtitle, children }: { title: string; subtitle: string; children: Snippet } = $props();
+	import Logo from '#lib/components/Logo.svelte';
+
+	let { eyebrow, title, subtitle, children }: { eyebrow: string; title: string; subtitle: string; children: Snippet } = $props();
 </script>
 
 <main>
+	<div class="top"><Logo /></div>
 	<section class="card">
-		<div class="brand" aria-hidden="true"><span></span><span></span><span></span></div>
+		<span class="eyebrow">{eyebrow}</span>
 		<h1>{title}</h1>
 		<p class="hint">{subtitle}</p>
 		{@render children()}
@@ -16,38 +19,28 @@
 	main {
 		min-height: 100vh;
 		display: grid;
-		place-items: center;
-		padding: var(--space-4);
+		align-content: center;
+		justify-items: center;
+		gap: 28px;
+		padding: var(--gutter);
 	}
 	section {
-		width: min(420px, 100%);
-		padding: var(--space-6);
+		width: min(440px, 100%);
+		padding: 32px;
 		display: grid;
-		gap: var(--space-2);
+		gap: 10px;
+	}
+	h1 {
+		font-size: 1.6rem;
 	}
 	section :global(form) {
 		display: grid;
-		gap: var(--space-4);
-		margin-top: var(--space-4);
+		gap: 18px;
+		margin-top: 18px;
 	}
-	section :global(.btn.primary) {
-		justify-content: center;
-	}
-	.brand {
-		display: grid;
-		gap: 3px;
-		width: 28px;
-		margin-bottom: var(--space-2);
-	}
-	.brand span {
-		height: 6px;
-		border-radius: 2px;
-		background: var(--color-muted-foreground);
-	}
-	.brand span:first-child {
-		background: var(--color-accent);
-	}
-	p {
-		margin: 0;
+	@media (max-width: 480px) {
+		section {
+			padding: 20px;
+		}
 	}
 </style>

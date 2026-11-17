@@ -13,19 +13,11 @@
 		session.clear();
 		goto(resolve('/login'));
 	});
-
-	// Theme: system preference unless the user picked one.
-	try {
-		const t = localStorage.getItem('rackend.theme');
-		if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
-	} catch {
-		/* storage unavailable */
-	}
 </script>
 
 <svelte:head>
-	<link rel="icon" href={favicon} />
-	<title>rackend</title>
+	<link rel="icon" href={favicon} type="image/svg+xml" />
+	<title>rackend admin</title>
 </svelte:head>
 
 {@render children()}

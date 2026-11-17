@@ -45,10 +45,18 @@ fn main() {
     } else {
         let out = Path::new(&std::env::var("OUT_DIR").unwrap_or_default()).join("ui-placeholder");
         let _ = std::fs::create_dir_all(&out);
+        // Same tokens as the admin UI and the hosted error page (Visual Identity).
         let _ = std::fs::write(
             out.join("index.html"),
-            "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>rackend</title></head>\
-<body><main><h1>rackend</h1><p>UI not built; run <code>mise run ui:build</code>.</p></main></body></html>\n",
+            "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
+<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>rackend admin</title>\
+<style>:root{color-scheme:light dark}body{margin:0;min-height:100vh;display:grid;place-items:center;\
+padding:24px;background:light-dark(#fafaf9,#0a0b0d);color:light-dark(#0b0c0e,#ededef);\
+font:16px/1.6 ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif}\
+main{max-width:480px;padding:32px;border:1px dashed light-dark(#cfcfca,#30343c);border-radius:10px}\
+h1{margin:0 0 8px;font-size:1.4rem;letter-spacing:-.03em}p{margin:0;color:light-dark(#52555c,#a0a3ab)}\
+code{font:13px ui-monospace,'SF Mono',Menlo,monospace}</style></head>\
+<body><main><h1>Admin UI not built</h1><p>Run <code>mise run ui:build</code>, then rebuild rackend.</p></main></body></html>\n",
         );
         out
     };

@@ -30,6 +30,7 @@
 	let saving = $state(false);
 	let error = $state<ApiError | null>(null);
 	let notice = $state('');
+	let noticeWrite = $state(false);
 	let preview = $state<{ ddl: string; warnings: string[] } | null>(null);
 	let dialog = $state<HTMLDialogElement>();
 	let banner = $state<HTMLElement>();
@@ -103,7 +104,8 @@
 			const updated = await patch<Collection>(`/api/collections/${collection.id}`, payload);
 			dialog?.close();
 			await session.loadCollections();
-			notice = updated.warnings?.length ? updated.warnings.join(' ') : 'Saved.';
+			noticeWrite = !!updated.warnings?.length;
+			notice = noticeWrite ? (updated.warnings ?? []).join(' ') : 'Saved.';
 			if (updated.name !== collection.name) {
 				await goto(resolve('/collections/[name]/schema', { name: updated.name }));
 			}
@@ -135,7 +137,10 @@
 	}}
 >
 	<header class="bar">
-		<h1>{collection ? `Schema of ${collection.name}` : 'New collection'}</h1>
+		<div class="title">
+			<span class="eyebrow">{collection ? 'Schema' : 'New collection'}</span>
+			<h1>{collection ? collection.name : 'Create a collection'}</h1>
+		</div>
 		<div class="actions">
 			{#if collection}
 				<button type="button" class="btn danger" onclick={remove}><Icon name="trash" />Delete</button>
@@ -146,20 +151,22 @@
 
 	<div aria-live="polite" bind:this={banner}>
 		{#if error}
-			<div class="banner error" role="alert">
+			<div class="notice danger" role="alert">
 				<Icon name="alert" />
-				<span>{error.message}{#if error.code === 'rule_compile_error' && error.position} (line {error.position.line}, column {error.position.column}){/if}</span>
+				<span>{error.message}{error.code === 'rule_compile_error' && error.position ? ` (line ${error.position.line}, column ${error.position.column})` : ''}</span>
 			</div>
 		{:else if notice}
-			<div class="banner ok"><Icon name="check" /><span>{notice}</span></div>
+			<div class="notice" class:ok={!noticeWrite} class:write={noticeWrite}><Icon name={noticeWrite ? 'alert' : 'check'} /><span>{notice}</span></div>
 		{/if}
 	</div>
 
 	<section class="card section">
+		<div class="card-head"><span class="ico"><Icon name="db" /></span><span class="eyebrow">Collection</span></div>
 		<label class="field">
 			Name
 			<input
 				type="text"
+				class="mono"
 				bind:value={draft.name}
 				required
 				pattern="[a-z][a-z0-9_]*"
@@ -168,25 +175,27 @@
 			/>
 			<span id="name-hint" class={fieldErr('name') ? 'error-text' : 'hint'}>{fieldErr('name') ?? 'Lowercase letters, digits and _. Also the table name and the URL segment.'}</span>
 		</label>
-		<label class="inline"><input type="checkbox" bind:checked={draft.audit_records} /> Audit record changes</label>
+		<label class="inline"><input type="checkbox" bind:checked={draft.audit_records} />Audit record changes</label>
 	</section>
 
 	<section class="card section">
 		<div class="section-head">
-			<h2>Fields</h2>
-			<button type="button" class="btn" onclick={addField}><Icon name="plus" />Add field</button>
+			<div class="card-head"><span class="ico"><Icon name="table" /></span><span class="eyebrow">Fields</span></div>
+			<button type="button" class="btn sm" onclick={addField}><Icon name="plus" />Add field</button>
 		</div>
-		<p class="hint">Every record also has <code>id</code>, <code>created</code> and <code>updated</code>. Removed fields go to the trash and can be restored.</p>
+		<p class="hint">
+			Every record also has <code>id</code>, <code>created</code> and <code>updated</code>. Removed fields go to the trash and can be restored.
+		</p>
 		{#each draft.fields as f, i (f.id ?? i)}
 			<fieldset class="field-row">
 				<legend class="sr-only">Field {i + 1}</legend>
 				<div class="row-main">
 					<label class="field grow">
 						Name
-						<input type="text" bind:value={f.name} required aria-invalid={fieldErr(`fields.${i}.name`) ? 'true' : undefined} />
+						<input type="text" class="mono" bind:value={f.name} required aria-invalid={fieldErr(`fields.${i}.name`) ? 'true' : undefined} />
 						{#if fieldErr(`fields.${i}.name`)}<span class="error-text">{fieldErr(`fields.${i}.name`)}</span>{/if}
 					</label>
-					<label class="field">
+					<label class="field type">
 						Type
 						<select value={f.type} onchange={(e) => setType(f, e.currentTarget.value as FieldType)}>
 							{#each TYPES as t (t)}<option value={t}>{t}</option>{/each}
@@ -194,9 +203,9 @@
 						{#if fieldErr(`fields.${i}.type`)}<span class="error-text">{fieldErr(`fields.${i}.type`)}</span>{/if}
 					</label>
 					{#if !['bool', 'autodate', 'json'].includes(f.type)}
-						<label class="inline req"><input type="checkbox" bind:checked={f.required} /> Required</label>
+						<label class="inline"><input type="checkbox" bind:checked={f.required} />Required</label>
 					{/if}
-					<button type="button" class="btn icon ghost" aria-label="Remove field {f.name || i + 1}" onclick={() => draft.fields.splice(i, 1)}>
+					<button type="button" class="btn sm icon ghost" aria-label="Remove field {f.name || i + 1}" onclick={() => draft.fields.splice(i, 1)}>
 						<Icon name="x" />
 					</button>
 				</div>
@@ -206,22 +215,22 @@
 						<label class="field">Max chars<input type="number" min="1" value={f.max ?? ''} placeholder="10000" oninput={(e) => (f.max = num(e.currentTarget.value))} /></label>
 						<label class="field grow">Pattern (regex)<input type="text" class="mono" value={f.pattern ?? ''} oninput={(e) => (f.pattern = e.currentTarget.value || null)} /></label>
 					{:else if f.type === 'email'}
-						<label class="field grow">Only domains<input type="text" value={list(f.only_domains)} oninput={(e) => (f.only_domains = toList(e.currentTarget.value))} placeholder="example.com, …" /></label>
-						<label class="field grow">Except domains<input type="text" value={list(f.except_domains)} oninput={(e) => (f.except_domains = toList(e.currentTarget.value))} /></label>
+						<label class="field grow">Only domains<input type="text" class="mono" value={list(f.only_domains)} oninput={(e) => (f.only_domains = toList(e.currentTarget.value))} placeholder="example.com" /></label>
+						<label class="field grow">Except domains<input type="text" class="mono" value={list(f.except_domains)} oninput={(e) => (f.except_domains = toList(e.currentTarget.value))} /></label>
 					{:else if f.type === 'url'}
-						<label class="field grow">Schemes<input type="text" value={list(f.schemes)} oninput={(e) => (f.schemes = toList(e.currentTarget.value))} placeholder="https, http" /></label>
+						<label class="field grow">Schemes<input type="text" class="mono" value={list(f.schemes)} oninput={(e) => (f.schemes = toList(e.currentTarget.value))} placeholder="https, http" /></label>
 					{:else if f.type === 'number'}
 						<label class="field">Min<input type="number" step="any" value={f.min ?? ''} oninput={(e) => (f.min = num(e.currentTarget.value))} /></label>
 						<label class="field">Max<input type="number" step="any" value={f.max ?? ''} oninput={(e) => (f.max = num(e.currentTarget.value))} /></label>
-						<label class="inline"><input type="checkbox" checked={!!f.integer_only} onchange={(e) => (f.integer_only = e.currentTarget.checked)} /> Whole numbers only</label>
+						<label class="inline"><input type="checkbox" checked={!!f.integer_only} onchange={(e) => (f.integer_only = e.currentTarget.checked)} />Whole numbers only</label>
 					{:else if f.type === 'date'}
 						<label class="field">Min<input type="text" class="mono" value={f.min ?? ''} placeholder="2026-01-01" oninput={(e) => (f.min = e.currentTarget.value || null)} /></label>
 						<label class="field">Max<input type="text" class="mono" value={f.max ?? ''} oninput={(e) => (f.max = e.currentTarget.value || null)} /></label>
 					{:else if f.type === 'autodate'}
-						<label class="inline"><input type="checkbox" checked={f.on_create !== false} onchange={(e) => (f.on_create = e.currentTarget.checked)} /> On create</label>
-						<label class="inline"><input type="checkbox" checked={!!f.on_update} onchange={(e) => (f.on_update = e.currentTarget.checked)} /> On update</label>
+						<label class="inline"><input type="checkbox" checked={f.on_create !== false} onchange={(e) => (f.on_create = e.currentTarget.checked)} />On create</label>
+						<label class="inline"><input type="checkbox" checked={!!f.on_update} onchange={(e) => (f.on_update = e.currentTarget.checked)} />On update</label>
 					{:else if f.type === 'select'}
-						<label class="field grow">Values<input type="text" value={list(f.values)} oninput={(e) => (f.values = toList(e.currentTarget.value))} placeholder="draft, published" aria-invalid={fieldErr(`fields.${i}.values`) ? 'true' : undefined} /></label>
+						<label class="field grow">Values<input type="text" class="mono" value={list(f.values)} oninput={(e) => (f.values = toList(e.currentTarget.value))} placeholder="draft, published" aria-invalid={fieldErr(`fields.${i}.values`) ? 'true' : undefined} /></label>
 						<label class="field">Max selected<input type="number" min="1" value={f.max_select ?? 1} oninput={(e) => (f.max_select = num(e.currentTarget.value))} /></label>
 					{:else if f.type === 'json'}
 						<label class="field">Max bytes<input type="number" min="1" value={f.max_size ?? ''} placeholder="1048576" oninput={(e) => (f.max_size = num(e.currentTarget.value))} /></label>
@@ -249,15 +258,15 @@
 				{/each}
 			</fieldset>
 		{:else}
-			<p class="empty">No fields yet.</p>
+			<p class="placeholder">No fields yet. Records will only have <code>id</code>, <code>created</code> and <code>updated</code>.</p>
 		{/each}
 	</section>
 
 	<section class="card section">
-		<h2>API rules</h2>
+		<div class="card-head"><span class="ico"><Icon name="lock" /></span><span class="eyebrow">API rules</span></div>
 		<p class="hint">
-			<strong>Superusers only</strong> is the default. Rules use the filter language, e.g. <code>owner = @request.auth.id</code>. On
-			multi-valued fields, plain operators require <em>all</em> values to match and <code>?=</code>-style operators <em>at least one</em>.
+			Locked by default; only superusers can read or write. Rules use the filter language, e.g. <code>owner = @request.auth.id</code>. On multi-valued
+			fields, plain operators require <em>all</em> values to match and <code>?=</code>-style operators <em>at least one</em>.
 		</p>
 		<div class="rules">
 			{#each OPS as op (op)}
@@ -268,80 +277,98 @@
 
 	<section class="card section">
 		<div class="section-head">
-			<h2>Indexes</h2>
-			<button type="button" class="btn" onclick={() => draft.indexes.push({ name: '', fields: [], unique: false })}><Icon name="plus" />Add index</button>
+			<div class="card-head"><span class="ico"><Icon name="layout" /></span><span class="eyebrow">Indexes</span></div>
+			<button type="button" class="btn sm" onclick={() => draft.indexes.push({ name: '', fields: [], unique: false })}><Icon name="plus" />Add index</button>
 		</div>
 		{#each draft.indexes as idx, i (i)}
 			<div class="row-main">
-				<label class="field">Name<input type="text" bind:value={idx.name} required /></label>
-				<label class="field grow">Fields<input type="text" value={list(idx.fields)} oninput={(e) => (idx.fields = toList(e.currentTarget.value))} placeholder="title, created" /></label>
-				<label class="inline req"><input type="checkbox" bind:checked={idx.unique} /> Unique</label>
-				<button type="button" class="btn icon ghost" aria-label="Remove index {idx.name || i + 1}" onclick={() => draft.indexes.splice(i, 1)}><Icon name="x" /></button>
+				<label class="field">Name<input type="text" class="mono" bind:value={idx.name} required /></label>
+				<label class="field grow">Fields<input type="text" class="mono" value={list(idx.fields)} oninput={(e) => (idx.fields = toList(e.currentTarget.value))} placeholder="title, created" /></label>
+				<label class="inline"><input type="checkbox" bind:checked={idx.unique} />Unique</label>
+				<button type="button" class="btn sm icon ghost" aria-label="Remove index {idx.name || i + 1}" onclick={() => draft.indexes.splice(i, 1)}><Icon name="x" /></button>
 			</div>
 			{#if fieldErr(`indexes.${i}.fields`)}<p class="error-text">{fieldErr(`indexes.${i}.fields`)}</p>{/if}
 		{:else}
-			<p class="empty">No indexes.</p>
+			<p class="placeholder">No indexes. The primary key on <code>id</code> always exists.</p>
 		{/each}
 	</section>
 </form>
 
-<dialog bind:this={dialog} aria-labelledby="preview-title" class="card">
-	<h2 id="preview-title">Apply these changes?</h2>
-	{#if preview}
-		{#if preview.warnings.length}
-			<ul class="warnings">{#each preview.warnings as w (w)}<li>{w}</li>{/each}</ul>
+<dialog bind:this={dialog} aria-labelledby="preview-title">
+	<div class="dialog">
+		<div class="dialog-head">
+			<h2 id="preview-title">Apply these changes?</h2>
+			<span class="tag">dry run</span>
+		</div>
+		{#if preview}
+			{#each preview.warnings as w (w)}
+				<p class="notice write"><Icon name="alert" /><span>{w}</span></p>
+			{/each}
+			<p class="hint">SQL that will run in one transaction, together with the schema history and audit entries:</p>
+			<pre class="well ddl">{preview.ddl || '-- no table changes (rules or options only)'}</pre>
 		{/if}
-		<p class="hint">SQL that will run in one transaction:</p>
-		<pre class="ddl">{preview.ddl || '-- no table changes (rules or options only)'}</pre>
-	{/if}
-	<div class="actions">
-		<button type="button" class="btn" onclick={() => dialog?.close()}>Cancel</button>
-		<button type="button" class="btn primary" disabled={saving} onclick={apply}>Apply</button>
+		<div class="actions">
+			<button type="button" class="btn" onclick={() => dialog?.close()}>Cancel</button>
+			<button type="button" class="btn primary" disabled={saving} onclick={apply}>Apply</button>
+		</div>
 	</div>
 </dialog>
 
 <style>
 	.editor {
 		display: grid;
-		gap: var(--space-4);
-		max-width: 980px;
+		gap: 16px;
+		max-width: 1000px;
 	}
 	.bar {
 		display: flex;
-		align-items: center;
+		align-items: flex-end;
 		justify-content: space-between;
-		gap: var(--space-3);
+		gap: 16px;
+		flex-wrap: wrap;
+		margin-bottom: 8px;
+	}
+	.title {
+		display: grid;
+		gap: 6px;
 	}
 	.actions {
 		display: flex;
-		gap: var(--space-2);
+		gap: 8px;
 		justify-content: flex-end;
+		flex-wrap: wrap;
 	}
 	.section {
-		padding: var(--space-4);
+		padding: 24px;
 		display: grid;
-		gap: var(--space-3);
+		gap: 14px;
+	}
+	.section:hover {
+		border-color: var(--border-strong);
 	}
 	.section-head {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-	}
-	.hint {
-		margin: 0;
+		gap: 12px;
 	}
 	.field-row {
-		border: 1px solid var(--color-border);
-		border-radius: var(--radius);
-		padding: var(--space-3);
 		margin: 0;
+		padding: 16px;
 		display: grid;
-		gap: var(--space-2);
+		gap: 12px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		background: var(--surface);
+	}
+	.field-row input,
+	.field-row select {
+		background: var(--bg-elev);
 	}
 	.row-main,
 	.options {
 		display: flex;
-		gap: var(--space-3);
+		gap: 12px;
 		align-items: flex-end;
 		flex-wrap: wrap;
 	}
@@ -351,59 +378,43 @@
 	.grow {
 		flex: 1 1 200px;
 	}
+	.type {
+		flex: 0 0 150px;
+	}
 	.inline {
 		display: inline-flex;
 		align-items: center;
-		gap: var(--space-2);
-		font-size: 0.875rem;
-		min-height: 36px;
+		gap: 8px;
+		height: 40px;
+		font-size: 14px;
 		cursor: pointer;
 	}
 	.rules {
 		display: grid;
-		gap: var(--space-4);
-	}
-	.empty {
-		margin: 0;
-		color: var(--color-muted-foreground);
-	}
-	.banner {
-		display: flex;
-		gap: var(--space-2);
-		align-items: flex-start;
-		padding: var(--space-3);
-		border-radius: var(--radius);
-		border: 1px solid;
-	}
-	.banner.error {
-		color: var(--color-destructive);
-		border-color: var(--color-destructive);
-	}
-	.banner.ok {
-		color: var(--color-accent);
-		border-color: var(--color-accent);
+		gap: 16px;
 	}
 	dialog {
 		width: min(720px, calc(100vw - 32px));
-		padding: var(--space-5);
-		color: var(--color-foreground);
 	}
-	dialog::backdrop {
-		background: rgb(0 0 0 / 0.55);
+	.dialog {
+		display: grid;
+		gap: 14px;
 	}
-	dialog h2 {
-		margin-bottom: var(--space-3);
+	.dialog-head {
+		display: flex;
+		align-items: center;
+		gap: 10px;
 	}
 	.ddl {
-		background: var(--color-code-bg);
-		padding: var(--space-3);
-		border-radius: var(--radius-sm);
-		overflow: auto;
 		max-height: 320px;
 		white-space: pre-wrap;
 	}
-	.warnings {
-		color: var(--color-warning);
-		padding-left: var(--space-5);
+	@media (max-width: 480px) {
+		.section {
+			padding: 20px;
+		}
+		.type {
+			flex: 1 1 140px;
+		}
 	}
 </style>

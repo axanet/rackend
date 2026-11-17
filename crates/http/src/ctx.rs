@@ -65,7 +65,7 @@ fn origin_of(url: &str) -> Option<String> {
 
 /// CSRF protection for cookie-authenticated unsafe requests (SPEC §11.6):
 /// `Origin` (or `Referer`) must match `app.public_url`, a configured CORS
-/// origin, or — before a public URL is set — the request's own host.
+/// origin, or (before a public URL is set) the request's own host.
 fn check_origin(state: &AppState, parts: &Parts) -> Result<(), ApiError> {
     if matches!(parts.method, Method::GET | Method::HEAD | Method::OPTIONS) {
         return Ok(());

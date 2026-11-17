@@ -60,7 +60,7 @@ The setup screen also asks for the public URL users reach the instance at.
 
 Upgrading never loses data. On start, before any schema change, rackend:
 
-1. refuses to run against a database written by a newer version (exit 78) — downgrades are not supported;
+1. refuses to run against a database written by a newer version (exit 78), because downgrades are not supported;
 2. checks there is enough free space (2 × database size + 100 MB, else exit 73);
 3. writes a verified snapshot to `backups/pre-upgrade-<from>-to-<to>-<timestamp>.db` (exit 74 if verification fails);
 4. applies each migration in its own transaction (exit 70 on failure, data unchanged) and checks integrity afterwards.

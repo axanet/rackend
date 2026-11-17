@@ -68,10 +68,21 @@
 		return sort === col ? 'ascending' : sort === `-${col}` ? 'descending' : undefined;
 	}
 
+	// Empty cells say "none" (Writing Style: no dashes as placeholders).
 	function cell(v: unknown): string {
-		if (v === null || v === undefined || v === '') return '—';
+		if (v === null || v === undefined || v === '') return 'none';
+		if (Array.isArray(v) && v.length === 0) return 'none';
 		if (typeof v === 'object') return JSON.stringify(v);
 		return String(v);
+	}
+
+	const empty = (v: unknown) => v === null || v === undefined || v === '' || (Array.isArray(v) && v.length === 0);
+
+	/** Mono for ids, timestamps, numbers and JSON. */
+	function isMono(col: string): boolean {
+		if (col === 'id' || col === 'updated' || col === 'created') return true;
+		const f = collection?.fields.find((x) => x.name === col);
+		return !!f && ['number', 'date', 'autodate', 'json', 'relation'].includes(f.type);
 	}
 
 	async function remove(r: RecordRow) {
@@ -96,18 +107,21 @@
 {:else}
 	<header class="bar">
 		<div class="title">
-			<h1>{collection.name}</h1>
-			<span class="hint" aria-live="polite">{status}</span>
+			<span class="eyebrow">Records</span>
+			<div class="name-row">
+				<h1>{collection.name}</h1>
+				<span class="chip" aria-live="polite">{status || 'loading…'}</span>
+			</div>
 		</div>
 		<div class="actions">
-			<a class="btn" href={resolve('/collections/[name]/schema', { name: collection.name })}><Icon name="settings" />Schema & rules</a>
+			<a class="btn" href={resolve('/collections/[name]/schema', { name: collection.name })}><Icon name="sliders" />Schema and rules</a>
 			<button class="btn primary" onclick={() => (editing = null)}><Icon name="plus" />New record</button>
 		</div>
 	</header>
 
 	<form class="filter" onsubmit={applyFilter} role="search">
 		<label class="sr-only" for="filter">Filter records</label>
-		<Icon name="search" />
+		<span class="filter-icon"><Icon name="search" /></span>
 		<input
 			id="filter"
 			type="search"
@@ -118,18 +132,16 @@
 			aria-describedby="filter-error"
 			spellcheck="false"
 		/>
-		<button class="btn">Apply</button>
-		<button type="button" class="btn icon ghost" aria-label="Reload" title="Reload" onclick={load}><Icon name="refresh" /></button>
+		<button class="btn sm">Apply</button>
+		<button type="button" class="btn sm icon ghost" aria-label="Reload" title="Reload" onclick={load}><Icon name="refresh" /></button>
 	</form>
 	<div id="filter-error" aria-live="polite">
 		{#if error}
-			<p class="error-text" role="alert">
-				{error.position ? `Column ${error.position.column}: ` : ''}{error.message}
-			</p>
+			<p class="error-text" role="alert">{error.position ? `Column ${error.position.column}: ` : ''}{error.message}</p>
 		{/if}
 	</div>
 
-	<div class="table-wrap card" aria-busy={loading}>
+	<div class="table-wrap" aria-busy={loading}>
 		<table>
 			<thead>
 				<tr>
@@ -137,7 +149,7 @@
 						<th scope="col" aria-sort={sortState(col)}>
 							<button class="th" onclick={() => toggleSort(col)}>
 								{col}
-								{#if sortState(col) === 'ascending'}<Icon name="arrowUp" size={14} />{:else if sortState(col) === 'descending'}<Icon name="arrowDown" size={14} />{/if}
+								{#if sortState(col) === 'ascending'}<Icon name="arrowUp" size={12} />{:else if sortState(col) === 'descending'}<Icon name="arrowDown" size={12} />{/if}
 							</button>
 						</th>
 					{/each}
@@ -148,15 +160,15 @@
 				{#each data?.items ?? [] as r (r.id)}
 					<tr>
 						{#each columns as col (col)}
-							<td class:mono={col === 'id' || col === 'updated'} title={cell(r[col])}>{col === 'id' ? r.id.slice(-12) : cell(r[col])}</td>
+							<td class:mono={isMono(col)} class:none={empty(r[col])} title={cell(r[col])}>{col === 'id' ? r.id.slice(-12) : cell(r[col])}</td>
 						{/each}
 						<td class="row-actions">
-							<button class="btn icon ghost" aria-label="Edit record {r.id}" onclick={() => (editing = r)}><Icon name="pencil" size={16} /></button>
-							<button class="btn icon ghost danger" aria-label="Delete record {r.id}" onclick={() => remove(r)}><Icon name="trash" size={16} /></button>
+							<button class="btn sm icon ghost" aria-label="Edit record {r.id}" onclick={() => (editing = r)}><Icon name="pencil" /></button>
+							<button class="btn sm icon ghost del" aria-label="Delete record {r.id}" onclick={() => remove(r)}><Icon name="trash" /></button>
 						</td>
 					</tr>
 				{:else}
-					<tr><td colspan={columns.length + 1} class="empty">{loading ? 'Loading…' : filter ? 'No records match this filter.' : 'No records yet.'}</td></tr>
+					<tr><td colspan={columns.length + 1} class="empty-row">{loading ? 'Loading…' : filter ? 'No records match this filter.' : 'No records yet.'}</td></tr>
 				{/each}
 			</tbody>
 		</table>
@@ -164,10 +176,11 @@
 
 	{#if data && data.total_pages > 1}
 		<nav class="pager" aria-label="Pagination">
-			<button class="btn icon" aria-label="Previous page" disabled={pageNo <= 1} onclick={() => pageNo--}><Icon name="chevronLeft" /></button>
-			<span>Page {data.page} of {data.total_pages}</span>
-			<button class="btn icon" aria-label="Next page" disabled={pageNo >= data.total_pages} onclick={() => pageNo++}><Icon name="chevronRight" /></button>
-			<label class="per-page">Per page
+			<button class="btn sm icon" aria-label="Previous page" disabled={pageNo <= 1} onclick={() => pageNo--}><Icon name="chevronLeft" /></button>
+			<span class="mono pages">{data.page} / {data.total_pages}</span>
+			<button class="btn sm icon" aria-label="Next page" disabled={pageNo >= data.total_pages} onclick={() => pageNo++}><Icon name="chevronRight" /></button>
+			<label class="per-page"
+				><span class="eyebrow">Per page</span>
 				<select bind:value={perPage} onchange={() => (pageNo = 1)}>
 					{#each [30, 100, 500] as n (n)}<option value={n}>{n}</option>{/each}
 				</select>
@@ -192,101 +205,140 @@
 	.bar {
 		display: flex;
 		justify-content: space-between;
-		align-items: center;
-		gap: var(--space-3);
+		align-items: flex-end;
+		gap: 16px;
 		flex-wrap: wrap;
-		margin-bottom: var(--space-4);
+		margin-bottom: 20px;
 	}
 	.title {
+		display: grid;
+		gap: 6px;
+	}
+	.name-row {
 		display: flex;
-		align-items: baseline;
-		gap: var(--space-3);
+		align-items: center;
+		gap: 12px;
 	}
 	.actions {
 		display: flex;
-		gap: var(--space-2);
+		gap: 8px;
+		flex-wrap: wrap;
 	}
 	.filter {
 		display: flex;
 		align-items: center;
-		gap: var(--space-2);
-		color: var(--color-muted-foreground);
+		gap: 8px;
+		position: relative;
+	}
+	.filter-icon {
+		position: absolute;
+		left: 14px;
+		color: var(--fg-subtle);
+		pointer-events: none;
 	}
 	.filter input {
 		flex: 1;
+		padding-left: 38px;
 	}
 	#filter-error {
-		min-height: var(--space-4);
-		margin: var(--space-1) 0 var(--space-2);
-	}
-	#filter-error p {
-		margin: 0;
+		min-height: 22px;
+		margin: 6px 0 8px;
 	}
 	.table-wrap {
 		overflow-x: auto;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		background: var(--bg-elev);
 	}
 	table {
 		width: 100%;
 		border-collapse: collapse;
-		font-size: 0.875rem;
+		font-size: 14px;
 	}
 	th,
 	td {
-		text-align: left;
-		padding: 0 var(--space-3);
-		height: 36px;
-		border-bottom: 1px solid var(--color-border);
-		max-width: 280px;
+		height: 40px;
+		padding: 0 14px;
+		max-width: 300px;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+		text-align: left;
+		border-bottom: 1px solid var(--border);
+	}
+	td.mono {
+		font-size: 12.5px;
+	}
+	td.none {
+		color: var(--fg-subtle);
+	}
+	tbody tr:last-child td {
+		border-bottom: 0;
 	}
 	thead th {
-		background: var(--color-muted);
-		position: sticky;
-		top: 0;
 		padding: 0;
+		background: var(--surface);
 	}
 	.th {
 		display: inline-flex;
 		align-items: center;
-		gap: var(--space-1);
+		gap: 6px;
 		width: 100%;
-		height: 36px;
-		padding: 0 var(--space-3);
-		background: none;
+		height: 38px;
+		padding: 0 14px;
 		border: 0;
-		font: inherit;
-		font-weight: 600;
-		color: var(--color-muted-foreground);
+		background: none;
+		font: 500 11px/1 var(--font-mono);
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--fg-subtle);
 		cursor: pointer;
 	}
+	.th:hover,
+	th[aria-sort] .th {
+		color: var(--fg);
+	}
+	tbody tr {
+		transition: background-color 0.15s var(--ease-out);
+	}
 	tbody tr:hover {
-		background: var(--color-muted);
+		background: var(--surface);
 	}
 	.row-actions {
 		width: 1%;
 		text-align: right;
+		padding-right: 8px;
 	}
-	.empty {
+	.row-actions :global(.btn) {
+		display: inline-flex;
+	}
+	.del:hover {
+		color: var(--danger);
+	}
+	.empty-row {
+		height: 120px;
 		text-align: center;
-		color: var(--color-muted-foreground);
-		height: 96px;
+		color: var(--fg-subtle);
 	}
 	.pager {
 		display: flex;
 		align-items: center;
-		gap: var(--space-3);
-		margin-top: var(--space-3);
+		gap: 10px;
+		margin-top: 14px;
+	}
+	.pages {
+		font-size: 13px;
+		color: var(--fg-muted);
 	}
 	.per-page {
 		display: inline-flex;
 		align-items: center;
-		gap: var(--space-2);
+		gap: 10px;
 		margin-left: auto;
-		font-size: 0.875rem;
 	}
 	.per-page select {
 		width: auto;
+		min-height: 34px;
+		padding: 4px 10px;
 	}
 </style>
