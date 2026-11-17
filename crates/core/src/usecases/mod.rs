@@ -6,6 +6,7 @@ pub mod auth;
 pub mod collections;
 pub mod compiled;
 pub mod ctx;
+pub mod files;
 pub mod first_boot;
 pub mod jobs;
 pub mod passkeys;
@@ -20,7 +21,7 @@ use tokio::sync::Semaphore;
 
 use crate::Result;
 use crate::domain::Schema;
-use crate::ports::{Clock, Spawner, Store, StoreExt};
+use crate::ports::{BlobStore, BlobStoreFactory, Clock, ImageProcessor, Spawner, Store, StoreExt};
 use crate::secrets::SecretBox;
 use crate::settings::Settings;
 
@@ -51,6 +52,18 @@ pub struct App {
     pub secrets: SecretBox,
     /// WebAuthn ceremony state (5 min TTL, SPEC §11.3).
     pub(crate) ceremonies: passkeys::Ceremonies,
+    /// Builds blob stores from the storage settings.
+    pub(crate) blob_factory: Arc<dyn BlobStoreFactory>,
+    /// The current blob store (rebuilt when the storage settings change).
+    pub(crate) blobs: RwLock<Arc<dyn BlobStore>>,
+    /// Image probing, normalization and thumbnails.
+    pub images: Arc<dyn ImageProcessor>,
+    /// Thumbnail single flight and concurrency.
+    pub(crate) thumbs: files::Thumbs,
+    /// A cleanup of removed files is running.
+    pub(crate) file_cleanup_running: std::sync::atomic::AtomicBool,
+    /// This app, for background tasks spawned from `&self` methods.
+    pub(crate) me: std::sync::Weak<App>,
 }
 
 /// Startup configuration of the app.
@@ -62,6 +75,10 @@ pub struct AppConfig {
     pub public_url_override: Option<String>,
     /// The secrets box (see [`secrets::init`]).
     pub secrets: SecretBox,
+    /// Builds blob stores (filesystem, S3).
+    pub blob_factory: Arc<dyn BlobStoreFactory>,
+    /// Image processing.
+    pub images: Arc<dyn ImageProcessor>,
 }
 
 impl App {
@@ -73,7 +90,9 @@ impl App {
         cfg: AppConfig,
     ) -> Result<Arc<Self>> {
         let cpus = std::thread::available_parallelism().map_or(4, |n| n.get());
-        let app = Arc::new(Self {
+        let unopened: Arc<dyn BlobStore> =
+            Arc::new(files::UnavailableBlobs("storage not opened yet".into()));
+        let app = Arc::new_cyclic(|me| Self {
             store,
             spawner,
             clock,
@@ -85,8 +104,15 @@ impl App {
             public_url_override: cfg.public_url_override,
             secrets: cfg.secrets,
             ceremonies: passkeys::Ceremonies::default(),
+            blob_factory: cfg.blob_factory,
+            blobs: RwLock::new(unopened),
+            images: cfg.images,
+            thumbs: files::Thumbs::default(),
+            file_cleanup_running: std::sync::atomic::AtomicBool::new(false),
+            me: me.clone(),
         });
         app.reload_settings().await?;
+        app.rebuild_blobs();
         app.reload_schema().await?;
         Ok(app)
     }

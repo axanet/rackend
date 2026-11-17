@@ -37,12 +37,19 @@ pub async fn start_empty() -> (Arc<App>, Router, tempfile::TempDir) {
         SqliteStore::new(db),
         rackend::wiring::AppOptions {
             version: "0.0.0-test",
+            data_dir: dir.path().to_path_buf(),
             ..Default::default()
         },
     )
     .await
     .unwrap();
-    let router = rackend::wiring::router(Arc::clone(&app), rackend_http::HttpOptions::default());
+    let router = rackend::wiring::router(
+        Arc::clone(&app),
+        rackend_http::HttpOptions {
+            tmp_dir: Some(dir.path().join("tmp")),
+            ..Default::default()
+        },
+    );
     (app, router, dir)
 }
 
@@ -151,4 +158,50 @@ pub fn superuser_ctx() -> RequestCtx {
         },
         time::OffsetDateTime::now_utc(),
     )
+}
+
+/// A `multipart/form-data` request: an optional `@json` part plus files
+/// given as `(field, filename, bytes)`.
+pub fn multipart_request(
+    method: Method,
+    uri: &str,
+    token: Option<&str>,
+    json: Option<Value>,
+    files: &[(&str, &str, &[u8])],
+) -> Request<Body> {
+    let boundary = "rackend-test-boundary-7d3f";
+    let mut body = Vec::new();
+    if let Some(j) = json {
+        body.extend_from_slice(format!("--{boundary}\r\nContent-Disposition: form-data; name=\"@json\"\r\nContent-Type: application/json\r\n\r\n{j}\r\n").as_bytes());
+    }
+    for (field, name, bytes) in files {
+        body.extend_from_slice(
+            format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{field}\"; filename=\"{name}\"\r\nContent-Type: application/octet-stream\r\n\r\n").as_bytes(),
+        );
+        body.extend_from_slice(bytes);
+        body.extend_from_slice(b"\r\n");
+    }
+    body.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+    let mut b = Request::builder().method(method).uri(uri).header(
+        "content-type",
+        format!("multipart/form-data; boundary={boundary}"),
+    );
+    if let Some(t) = token {
+        b = b.header("authorization", format!("Bearer {t}"));
+    }
+    b.body(Body::from(body)).unwrap()
+}
+
+/// Sends a multipart request and parses the JSON answer.
+pub async fn call_multipart(
+    router: &Router,
+    method: Method,
+    uri: &str,
+    token: Option<&str>,
+    json: Option<Value>,
+    files: &[(&str, &str, &[u8])],
+) -> (StatusCode, HeaderMap, Value) {
+    let r = send(router, multipart_request(method, uri, token, json, files)).await;
+    let v = r.json();
+    (r.status, r.headers, v)
 }

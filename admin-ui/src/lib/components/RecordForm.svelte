@@ -1,7 +1,7 @@
 <script lang="ts">
 	// Create/edit one record in a modal dialog. Field inputs follow the field
 	// type; server validation errors appear next to their field.
-	import { ApiError, message, patch, post, type Collection, type Field, type RecordRow } from '../api';
+	import { ApiError, fileUrl, formatBytes, formBody, getFileToken, isImageName, message, patch, post, type Collection, type Field, type RecordRow } from '../api';
 	import Icon from './Icon.svelte';
 
 	let {
@@ -12,7 +12,8 @@
 	}: { collection: Collection; record: RecordRow | null; onclose: () => void; onsaved: () => void } = $props();
 
 	const multi = (f: Field) => ((f.max_select as number | undefined) ?? 1) > 1;
-	const editable = (f: Field) => f.type !== 'autodate';
+	const editable = (f: Field) => f.type !== 'autodate' && f.type !== 'file';
+	const names = (v: unknown): string[] => (Array.isArray(v) ? (v as string[]) : typeof v === 'string' && v ? [v] : []);
 
 	function toInput(f: Field, v: unknown): unknown {
 		if (f.type === 'json') return v === null || v === undefined ? '' : JSON.stringify(v, null, 2);
@@ -28,6 +29,10 @@
 	);
 	const isAuth = $derived(collection.type === 'auth');
 	let password = $state('');
+	// Files: the stored ones the user keeps, and new ones to upload.
+	// svelte-ignore state_referenced_locally
+	let kept = $state<Record<string, string[]>>(Object.fromEntries(collection.fields.filter((f) => f.type === 'file').map((f) => [f.name, names(record?.[f.name])])));
+	let added = $state<Record<string, File[]>>({});
 	let error = $state<ApiError | null>(null);
 	let saving = $state(false);
 	let dialog = $state<HTMLDialogElement>();
@@ -60,15 +65,34 @@
 		return out;
 	}
 
+	function pick(f: Field, list: FileList | null) {
+		const picked = Array.from(list ?? []);
+		added[f.name] = multi(f) ? [...(added[f.name] ?? []), ...picked] : picked.slice(0, 1);
+	}
+
+	async function openFile(f: Field, name: string) {
+		if (!record) return;
+		const token = f.protected ? await getFileToken() : undefined;
+		window.open(fileUrl(collection.name, record.id, name, { token }), '_blank', 'noopener');
+	}
+
 	async function save() {
 		saving = true;
 		error = null;
 		try {
 			const data = body();
+			const files: [string, File][] = [];
+			for (const f of collection.fields.filter((x) => x.type === 'file')) {
+				const before = names(record?.[f.name]);
+				const keep = kept[f.name] ?? [];
+				if (record && keep.length !== before.length) data[f.name] = multi(f) ? keep : (keep[0] ?? null);
+				for (const file of added[f.name] ?? []) files.push([f.name, file]);
+			}
+			const payload = files.length ? formBody(data, files) : data;
 			if (record) {
-				await patch(`/api/collections/${collection.name}/records/${record.id}`, data, { 'If-Match': `"${record.updated}"` });
+				await patch(`/api/collections/${collection.name}/records/${record.id}`, payload, { 'If-Match': `"${record.updated}"` });
 			} else {
-				await post(`/api/collections/${collection.name}/records`, data);
+				await post(`/api/collections/${collection.name}/records`, payload);
 			}
 			onsaved();
 		} catch (e) {
@@ -104,7 +128,53 @@
 		<div class="fields">
 			{#each collection.fields as f (f.name)}
 				{@const err = error?.field(f.name)}
-				{#if f.type === 'autodate'}
+				{#if f.type === 'file'}
+					<fieldset class="field">
+						<legend class="name">
+							{f.name}{f.required ? ' *' : ''} <span class="chip">file</span>{#if f.protected}<span class="chip">protected</span>{/if}
+						</legend>
+						{#if (kept[f.name] ?? []).length || (added[f.name] ?? []).length}
+							<ul class="files">
+								{#each kept[f.name] ?? [] as n (n)}
+									<li>
+										{#if record && isImageName(n) && !f.protected}
+											<img src={fileUrl(collection.name, record.id, n, { thumb: '100x100' })} alt="" width="32" height="32" loading="lazy" />
+										{:else}
+											<span class="file-ico"><Icon name="file" /></span>
+										{/if}
+										<button type="button" class="link mono" onclick={() => openFile(f, n)}>{n}</button>
+										<button type="button" class="btn sm icon ghost" aria-label="Remove {n}" title="Remove" onclick={() => (kept[f.name] = kept[f.name].filter((x) => x !== n))}><Icon name="x" /></button>
+									</li>
+								{/each}
+								{#each added[f.name] ?? [] as file, i (i)}
+									<li class="new">
+										<span class="file-ico"><Icon name="upload" /></span>
+										<span class="mono">{file.name}</span>
+										<span class="subtle">{formatBytes(file.size)}</span>
+										<button type="button" class="btn sm icon ghost" aria-label="Do not upload {file.name}" title="Remove" onclick={() => (added[f.name] = added[f.name].filter((_, j) => j !== i))}><Icon name="x" /></button>
+									</li>
+								{/each}
+							</ul>
+						{/if}
+						<label class="btn sm pick">
+							<Icon name="upload" />{multi(f) ? 'Add files' : (kept[f.name] ?? []).length ? 'Replace file' : 'Choose file'}
+							<input
+								class="sr-only"
+								type="file"
+								multiple={multi(f)}
+								accept={((f.mime_types as string[]) ?? []).join(',') || undefined}
+								onchange={(e) => {
+									pick(f, e.currentTarget.files);
+									e.currentTarget.value = '';
+								}}
+								aria-invalid={err ? 'true' : undefined}
+							/>
+						</label>
+						<span class={err ? 'error-text' : 'hint'}>
+							{err ?? `Up to ${formatBytes((f.max_size as number) ?? 10485760)} per file${multi(f) ? `, ${f.max_select} files` : ''}${((f.mime_types as string[]) ?? []).length ? `; ${(f.mime_types as string[]).join(', ')}` : ''}.${!multi(f) && (kept[f.name] ?? []).length ? ' A new file replaces the current one.' : ''}`}
+						</span>
+					</fieldset>
+				{:else if f.type === 'autodate'}
 					<div class="field">
 						<span class="name">{f.name} <span class="chip">autodate</span></span>
 						<span class="mono subtle value">{(record?.[f.name] as string) ?? 'set by the server'}</span>
@@ -230,6 +300,68 @@
 		gap: 8px;
 		min-height: 32px;
 		font-size: 14px;
+	}
+	.pick {
+		justify-self: start;
+		cursor: pointer;
+	}
+	.pick:has(input:focus-visible) {
+		outline: 2px solid var(--accent);
+		outline-offset: 2px;
+	}
+	.files {
+		display: grid;
+		gap: 6px;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+	.files li {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		min-height: 40px;
+		padding: 4px 4px 4px 8px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		background: var(--surface);
+		font-size: 13px;
+		font-weight: 400;
+	}
+	.files li.new {
+		border-style: dashed;
+	}
+	.files img {
+		border-radius: 4px;
+		object-fit: cover;
+	}
+	.files .link {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		padding: 0;
+		border: 0;
+		background: none;
+		color: var(--fg);
+		text-align: left;
+		font-size: 13px;
+		cursor: pointer;
+		text-decoration: underline;
+		text-decoration-color: var(--border-strong);
+	}
+	.files .mono:not(.link) {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.file-ico {
+		display: inline-flex;
+		width: 32px;
+		justify-content: center;
+		color: var(--fg-subtle);
 	}
 	.choices {
 		display: flex;

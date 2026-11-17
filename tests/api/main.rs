@@ -4,6 +4,7 @@
 mod audit_fault;
 mod common;
 mod error_contract;
+mod files;
 mod flows;
 mod rule_matrix;
 mod secrets;

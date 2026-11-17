@@ -11,4 +11,11 @@ workspace = true
 
 [dependencies]
 rackend-core = { workspace = true }
+image = { workspace = true }
+fast_image_resize = { workspace = true, features = ["image"] }
+webp = { workspace = true }
+sha2 = { workspace = true }
 
+[dev-dependencies]
+kamadak-exif = { workspace = true }
+tempfile = { workspace = true }

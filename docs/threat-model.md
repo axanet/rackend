@@ -21,6 +21,7 @@ This is a short list of the threats rackend is designed against and where each m
 - Browser apps can use cookie mode: `HttpOnly`, `SameSite=Lax`, `Secure`, with the refresh cookie scoped to the refresh path and an `Origin` check on unsafe requests (CSRF).
 - Log lines never contain passwords, tokens, cookies or secrets: fields with those names are redacted, and a test greps captured logs for real test credentials.
 - Users see their sessions and can sign out other devices. Changing a password signs out every other session.
+- Protected files need a file token that lives two minutes, so a copied file URL stops working quickly; tokens are signed with a key derived from the secrets key.
 
 ## Credential guessing and account enumeration
 
@@ -67,10 +68,19 @@ This is a short list of the threats rackend is designed against and where each m
 
 **Threat:** an uploaded HTML or SVG file runs script in the instance's origin.
 
-**Mitigations (M3, designed now):**
-- Content type is sniffed, not taken from the client. HTML, SVG and other active types are served with `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff`.
-- File responses carry a restrictive `Content-Security-Policy` (`sandbox`).
-- Image metadata is stripped when thumbnails are made.
+**Mitigations:**
+- The type is sniffed from the bytes, never taken from the client's header or filename extension. Fields can restrict allowed types.
+- HTML and SVG are always served as `Content-Disposition: attachment`; every file response has `X-Content-Type-Options: nosniff` and a `Content-Security-Policy` with `sandbox` (PDFs excepted, they cannot run script in our origin).
+- Stored filenames are generated (`name_random8.ext`) and storage keys cannot contain `..` or absolute paths.
+
+## Privacy leaks and decompression bombs in uploads
+
+**Threat:** photos reveal where they were taken (EXIF GPS); a small file decodes to gigabytes of pixels.
+
+**Mitigations:**
+- JPEG, PNG and WebP uploads are re-encoded without metadata, after applying the EXIF orientation (per field, on by default). A golden test checks that GPS data is gone.
+- Image dimensions are read from the header before decoding; images above 50 megapixels are refused. Decoders run with memory limits.
+- Thumbnails come only in sizes the field lists (plus 100x100), are generated once per size even under concurrent requests, and run with bounded concurrency.
 
 ## Secrets at rest
 

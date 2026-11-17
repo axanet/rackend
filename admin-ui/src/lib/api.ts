@@ -46,15 +46,17 @@ export function setUnauthorizedHandler(fn: () => void) {
 }
 
 async function raw(method: Method, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<Response> {
+	// FormData sets its own multipart content type with the boundary.
+	const form = body instanceof FormData;
 	return fetch(path, {
 		method,
 		credentials: 'same-origin',
 		headers: {
 			Accept: 'application/json',
-			...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+			...(body !== undefined && !form ? { 'Content-Type': 'application/json' } : {}),
 			...headers
 		},
-		body: body !== undefined ? JSON.stringify(body) : undefined
+		body: form ? body : body !== undefined ? JSON.stringify(body) : undefined
 	});
 }
 
@@ -93,6 +95,50 @@ export const post = <T>(path: string, body?: unknown, headers?: Record<string, s
 export const patch = <T>(path: string, body?: unknown, headers?: Record<string, string>) => api<T>('PATCH', path, body, headers);
 export const del = <T>(path: string, headers?: Record<string, string>) => api<T>('DELETE', path, undefined, headers);
 
+/** A multipart body: the JSON fields in `@json`, files under their field name. */
+export function formBody(json: Record<string, unknown>, files: [string, File][]): FormData {
+	const fd = new FormData();
+	fd.append('@json', JSON.stringify(json));
+	for (const [field, file] of files) fd.append(field, file, file.name);
+	return fd;
+}
+
+let fileToken: { token: string; until: number } | null = null;
+
+/** A short-lived token for protected files, reused while it is fresh. */
+export async function getFileToken(): Promise<string> {
+	if (fileToken && Date.now() < fileToken.until) return fileToken.token;
+	const t = await post<{ token: string; expires_in: number }>('/api/files/token');
+	fileToken = { token: t.token, until: Date.now() + (t.expires_in - 20) * 1000 };
+	return t.token;
+}
+
+/** URL of a stored file (optionally a thumbnail or a forced download). */
+export function fileUrl(collection: string, recordId: string, filename: string, opts: { thumb?: string; token?: string; download?: boolean } = {}): string {
+	const q = new URLSearchParams();
+	if (opts.thumb) q.set('thumb', opts.thumb);
+	if (opts.token) q.set('token', opts.token);
+	if (opts.download) q.set('download', '1');
+	const qs = q.toString();
+	return `/api/files/${encodeURIComponent(collection)}/${encodeURIComponent(recordId)}/${encodeURIComponent(filename)}${qs ? `?${qs}` : ''}`;
+}
+
+/** Whether thumbnails can be requested for a stored filename. */
+export const isImageName = (name: string) => /\.(jpe?g|png|webp|gif)$/i.test(name);
+
+/** Bytes as B, KB, MB or GB. */
+export function formatBytes(n: number): string {
+	if (n < 1024) return `${n} B`;
+	const units = ['KB', 'MB', 'GB', 'TB'];
+	let v = n / 1024;
+	let i = 0;
+	while (v >= 1024 && i < units.length - 1) {
+		v /= 1024;
+		i++;
+	}
+	return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${units[i]}`;
+}
+
 /** Human message for any thrown value. */
 export function message(e: unknown): string {
 	if (e instanceof ApiError) {
@@ -103,7 +149,7 @@ export function message(e: unknown): string {
 
 // ---- Types mirrored from the API -------------------------------------------
 
-export type FieldType = 'text' | 'email' | 'url' | 'number' | 'bool' | 'date' | 'autodate' | 'select' | 'json' | 'relation';
+export type FieldType = 'text' | 'email' | 'url' | 'number' | 'bool' | 'date' | 'autodate' | 'select' | 'json' | 'relation' | 'file';
 
 export interface Field {
 	id?: string;

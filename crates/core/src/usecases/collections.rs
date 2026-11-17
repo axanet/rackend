@@ -761,7 +761,9 @@ impl App {
                 }
                 purge_in_tx(tx, &t, &actor, now)
             })
-            .await
+            .await?;
+        self.after_file_changes();
+        Ok(())
     }
 }
 
@@ -791,6 +793,12 @@ pub(crate) fn purge_in_tx(
     };
     let ddl = tx.schema_apply(&[step])?;
     tx.trash_remove(&t.id)?;
+    // Stored files of the purged field or collection go too (after commit).
+    let field_id = match t.kind {
+        TrashKind::Field => t.definition.get("id").and_then(Value::as_str),
+        TrashKind::Collection => None,
+    };
+    tx.files_mark_deleted_where(&t.collection_id, None, field_id, &format_timestamp(now))?;
     tx.schema_history_insert(&HistoryEntry {
         id: Uuid::now_v7().to_string(),
         collection_id: Some(t.collection_id.clone()),

@@ -111,6 +111,14 @@ Exceptions, where a standard defines its own format, are described under [Protoc
 - **Status:** 415
 - **Title:** Unsupported media type
 - **When:** wrong `Content-Type`, or an uploaded file type is not allowed for the field.
+- **Extensions:** `errors` (per field, code `type_not_allowed` with the detected `type` and the `allowed` list) when an upload was refused.
+
+### range_not_satisfiable
+
+- **Status:** 416
+- **Title:** Range not satisfiable
+- **When:** a file download asked for a `Range` outside the file.
+- **Extensions:** `size` (the file size). The `Content-Range: bytes */<size>` header is set too.
 
 ### rate_limited
 

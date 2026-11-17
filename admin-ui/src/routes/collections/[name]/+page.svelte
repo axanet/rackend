@@ -3,7 +3,7 @@
 	// create / edit / delete.
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
-	import { ApiError, del, get, message, type Page, type RecordRow } from '#lib/api.ts';
+	import { ApiError, del, fileUrl, get, isImageName, message, type Field, type Page, type RecordRow } from '#lib/api.ts';
 	import Icon from '#lib/components/Icon.svelte';
 	import RecordForm from '#lib/components/RecordForm.svelte';
 	import { session } from '#lib/session.svelte.ts';
@@ -75,6 +75,9 @@
 		if (typeof v === 'object') return JSON.stringify(v);
 		return String(v);
 	}
+
+	const fileField = (col: string): Field | undefined => collection?.fields.find((f) => f.name === col && f.type === 'file');
+	const fileNames = (v: unknown): string[] => (Array.isArray(v) ? (v as string[]) : typeof v === 'string' && v ? [v] : []);
 
 	const empty = (v: unknown) => v === null || v === undefined || v === '' || (Array.isArray(v) && v.length === 0);
 
@@ -160,7 +163,21 @@
 				{#each data?.items ?? [] as r (r.id)}
 					<tr>
 						{#each columns as col (col)}
-							<td class:mono={isMono(col)} class:none={empty(r[col])} title={cell(r[col])}>{col === 'id' ? r.id.slice(-12) : cell(r[col])}</td>
+							{@const ff = fileField(col)}
+							{#if ff && !empty(r[col])}
+								<td class="files-cell" title={fileNames(r[col]).join(', ')}>
+									{#each fileNames(r[col]).slice(0, 3) as n (n)}
+										{#if isImageName(n) && !ff.protected}
+											<img src={fileUrl(collection?.name ?? '', r.id, n, { thumb: '100x100' })} alt={n} width="24" height="24" loading="lazy" />
+										{:else}
+											<span class="file-name mono">{n}</span>
+										{/if}
+									{/each}
+									{#if fileNames(r[col]).length > 3}<span class="subtle">+{fileNames(r[col]).length - 3}</span>{/if}
+								</td>
+							{:else}
+								<td class:mono={isMono(col)} class:none={empty(r[col])} title={cell(r[col])}>{col === 'id' ? r.id.slice(-12) : cell(r[col])}</td>
+							{/if}
 						{/each}
 						<td class="row-actions">
 							<button class="btn sm icon ghost" aria-label="Edit record {r.id}" onclick={() => (editing = r)}><Icon name="pencil" /></button>
@@ -340,5 +357,23 @@
 		width: auto;
 		min-height: 34px;
 		padding: 4px 10px;
+	}
+	.files-cell {
+		white-space: nowrap;
+	}
+	.files-cell img {
+		vertical-align: middle;
+		margin-right: 4px;
+		border-radius: 4px;
+		object-fit: cover;
+		border: 1px solid var(--border);
+	}
+	.file-name {
+		display: inline-block;
+		max-width: 160px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		vertical-align: middle;
+		margin-right: 6px;
 	}
 </style>

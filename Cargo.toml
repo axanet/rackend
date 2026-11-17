@@ -60,6 +60,14 @@ rsa = { version = "=0.10.0-rc.19", features = ["sha2"] }
 p256 = { version = "0.14", features = ["ecdsa", "pkcs8"] }
 webauthn-rs = { version = "0.6.2", features = ["danger-allow-state-serialisation", "conditional-ui"] }
 governor = "0.10"
+object_store = { version = "0.14", default-features = false, features = ["aws"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
+fast_image_resize = { version = "6.1", default-features = false }
+webp = { version = "0.3", default-features = false }
+kamadak-exif = "0.6"
+# Stream plumbing for bodies and object storage (ADR 0012)
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+bytes = "1.12"
 # ADR 0007: pure-computation crates allowed in core
 regex = "1.13"
 fs4 = { version = "1.1", features = ["sync"] }
@@ -74,6 +82,7 @@ tempfile = "3.27"
 reqwest = { version = "0.13.5", default-features = false, features = ["json"] }
 insta = "1.49"
 proptest = "1.12"
+testcontainers = "0.28"
 
 [profile.release]
 lto = "thin"

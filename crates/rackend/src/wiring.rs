@@ -1,14 +1,38 @@
 //! Wires adapters to the core.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
-use rackend_core::ports::{Clock, SystemClock};
+use rackend_blob_fs::FsBlobStore;
+use rackend_blob_s3::S3BlobStore;
+use rackend_core::ports::{
+    BlobError, BlobStore, BlobStoreFactory, Clock, StorageConfig, SystemClock,
+};
 use rackend_core::usecases::{App, AppConfig, secrets};
 use rackend_http::{AppState, HttpConfig, HttpOptions};
+use rackend_imaging::Imaging;
 use rackend_store_sqlite::SqliteStore;
 
 use crate::spawner::TokioSpawner;
 use crate::ui_assets::EmbeddedUi;
+
+/// Builds blob stores: `storage/` on disk, or an S3 bucket.
+#[derive(Debug, Clone)]
+pub struct BlobFactory {
+    /// `{data}/storage`.
+    pub root: PathBuf,
+    /// `{data}/tmp` (same filesystem, for atomic renames).
+    pub tmp: PathBuf,
+}
+
+impl BlobStoreFactory for BlobFactory {
+    fn build(&self, config: &StorageConfig) -> Result<Arc<dyn BlobStore>, BlobError> {
+        Ok(match config {
+            StorageConfig::Fs => Arc::new(FsBlobStore::new(&self.root, self.tmp.join("blobs"))),
+            StorageConfig::S3(s3) => Arc::new(S3BlobStore::new(s3)?),
+        })
+    }
+}
 
 /// Startup options of the application.
 #[derive(Debug, Clone, Default)]
@@ -21,6 +45,8 @@ pub struct AppOptions {
     pub encryption_key: Option<[u8; 32]>,
     /// `RACKEND_RESET_SECRETS`.
     pub reset_secrets: bool,
+    /// The data directory (`storage/` and `tmp/` live there).
+    pub data_dir: PathBuf,
 }
 
 /// Loads the application on top of an opened store: secrets, settings,
@@ -45,6 +71,11 @@ pub async fn app(store: SqliteStore, opts: AppOptions) -> Result<Arc<App>, Strin
             version: opts.version,
             public_url_override: opts.public_url,
             secrets,
+            blob_factory: Arc::new(BlobFactory {
+                root: opts.data_dir.join("storage"),
+                tmp: opts.data_dir.join("tmp"),
+            }),
+            images: Arc::new(Imaging),
         },
     )
     .await

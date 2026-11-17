@@ -105,6 +105,16 @@ pub enum FieldKind {
         min_select: u32,
         on_delete: OnDelete,
     },
+    /// Uploaded file(s); values are stored filenames (SPEC §12).
+    File {
+        required: bool,
+        max_select: u32,
+        max_size: u64,
+        mime_types: Vec<String>,
+        thumbs: Vec<super::files::ThumbSpec>,
+        protected: bool,
+        strip_metadata: bool,
+    },
 }
 
 /// The scalar type of a field's values, for the rule type checker.
@@ -189,15 +199,16 @@ impl Field {
             FieldKind::Select { .. } => "select",
             FieldKind::Json { .. } => "json",
             FieldKind::Relation { .. } => "relation",
+            FieldKind::File { .. } => "file",
         }
     }
 
     /// Whether values are stored as a JSON array.
     pub fn is_multi(&self) -> bool {
         match self.kind {
-            FieldKind::Select { max_select, .. } | FieldKind::Relation { max_select, .. } => {
-                max_select > 1
-            }
+            FieldKind::Select { max_select, .. }
+            | FieldKind::Relation { max_select, .. }
+            | FieldKind::File { max_select, .. } => max_select > 1,
             _ => false,
         }
     }
@@ -211,7 +222,8 @@ impl Field {
             | FieldKind::Number { required, .. }
             | FieldKind::Date { required, .. }
             | FieldKind::Select { required, .. }
-            | FieldKind::Relation { required, .. } => required,
+            | FieldKind::Relation { required, .. }
+            | FieldKind::File { required, .. } => required,
             _ => false,
         }
     }
@@ -222,7 +234,8 @@ impl Field {
             FieldKind::Text { .. }
             | FieldKind::Email { .. }
             | FieldKind::Url { .. }
-            | FieldKind::Select { .. } => ValueType::Text,
+            | FieldKind::Select { .. }
+            | FieldKind::File { .. } => ValueType::Text,
             FieldKind::Number { .. } => ValueType::Number,
             FieldKind::Bool => ValueType::Bool,
             FieldKind::Date { .. } | FieldKind::Autodate { .. } => ValueType::Date,
@@ -330,6 +343,26 @@ impl Field {
                 m.insert("max_select".into(), json!(max_select));
                 m.insert("min_select".into(), json!(min_select));
                 m.insert("on_delete".into(), json!(on_delete.as_str()));
+            }
+            FieldKind::File {
+                required,
+                max_select,
+                max_size,
+                mime_types,
+                thumbs,
+                protected,
+                strip_metadata,
+            } => {
+                m.insert("required".into(), json!(required));
+                m.insert("max_select".into(), json!(max_select));
+                m.insert("max_size".into(), json!(max_size));
+                m.insert("mime_types".into(), json!(mime_types));
+                m.insert(
+                    "thumbs".into(),
+                    json!(thumbs.iter().map(ToString::to_string).collect::<Vec<_>>()),
+                );
+                m.insert("protected".into(), json!(protected));
+                m.insert("strip_metadata".into(), json!(strip_metadata));
             }
         }
         Value::Object(m)
@@ -560,7 +593,59 @@ impl Field {
                     on_delete,
                 }
             }
-            "file" | "ydoc" => {
+            "file" => {
+                let required = p.bool("required", false);
+                let max_select = p.u32("max_select").unwrap_or(1).max(1);
+                let max_size = p
+                    .u64("max_size")
+                    .unwrap_or(super::files::DEFAULT_MAX_SIZE)
+                    .max(1);
+                let mime_types = p.str_list("mime_types");
+                if let Some(bad) = mime_types.iter().find(|m| {
+                    let mut parts = m.split('/');
+                    let ok = |s: Option<&str>| {
+                        s.is_some_and(|s| {
+                            !s.is_empty()
+                                && s.bytes()
+                                    .all(|b| b.is_ascii_alphanumeric() || b"+-.*".contains(&b))
+                        })
+                    };
+                    !(ok(parts.next()) && ok(parts.next()) && parts.next().is_none())
+                }) {
+                    p.err(
+                        "mime_types",
+                        FieldError::new("invalid_option", "Use types like image/png or image/*.")
+                            .param("value", bad.clone()),
+                    );
+                }
+                let mut thumbs = Vec::new();
+                for t in p.str_list("thumbs") {
+                    match super::files::ThumbSpec::parse(&t) {
+                        Some(s) if !thumbs.contains(&s) => thumbs.push(s),
+                        Some(_) => {}
+                        None => p.err(
+                            "thumbs",
+                            FieldError::new(
+                                "invalid_option",
+                                "Thumb sizes look like 100x100, 100x100t, 100x100b, 100x100f, 0x200 or 300x0.",
+                            )
+                            .param("value", t),
+                        ),
+                    }
+                }
+                let protected = p.bool("protected", false);
+                let strip_metadata = p.bool("strip_metadata", true);
+                FieldKind::File {
+                    required,
+                    max_select,
+                    max_size,
+                    mime_types,
+                    thumbs,
+                    protected,
+                    strip_metadata,
+                }
+            }
+            "ydoc" => {
                 p.err(
                     "type",
                     FieldError::new(
@@ -821,6 +906,23 @@ impl Field {
                 }
                 multi_result(out, *max_select)?
             }
+            (FieldKind::File { max_select, .. }, v) => {
+                let names = string_list(v, *max_select > 1).ok_or_else(|| {
+                    type_err(if *max_select > 1 {
+                        "an array of filenames"
+                    } else {
+                        "a filename"
+                    })
+                })?;
+                if let Some(bad) = names.iter().find(|n| !super::files::is_stored_filename(n)) {
+                    return Err(FieldError::new(
+                        "invalid_filename",
+                        "Not a stored filename. Upload files with multipart/form-data.",
+                    )
+                    .param("value", bad.clone()));
+                }
+                multi_result(names, *max_select)?
+            }
             (
                 FieldKind::Text { .. }
                 | FieldKind::Email { .. }
@@ -1078,8 +1180,25 @@ mod tests {
         assert_eq!(e.0["fields.0.pattern"][0].code, "invalid_pattern");
         let e = field(json!({"name": "t", "type": "warp"})).unwrap_err();
         assert_eq!(e.0["fields.0.type"][0].code, "invalid_type");
-        let e = field(json!({"name": "t", "type": "file"})).unwrap_err();
+        let e = field(json!({"name": "t", "type": "ydoc"})).unwrap_err();
         assert_eq!(e.0["fields.0.type"][0].code, "unsupported_type");
+        let e = field(json!({"name": "t", "type": "file", "thumbs": ["10x10", "big"], "mime_types": ["image"]})).unwrap_err();
+        assert!(
+            e.0.contains_key("fields.0.thumbs") && e.0.contains_key("fields.0.mime_types"),
+            "{e:?}"
+        );
+        let f = field(
+            json!({"name": "t", "type": "file", "thumbs": ["10x10", "10x10"], "max_select": 3}),
+        )
+        .unwrap();
+        assert_eq!(f.to_json()["thumbs"], json!(["10x10"]));
+        assert_eq!(f.to_json()["strip_metadata"], json!(true));
+        assert!(f.is_multi());
+        assert!(f.normalize(&json!(["a_abcdefgh.png"])).is_ok());
+        assert_eq!(
+            f.normalize(&json!(["../x.png"])).unwrap_err().code,
+            "invalid_filename"
+        );
     }
 
     #[test]

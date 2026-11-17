@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use rackend_core::auth::keys::KeyRow;
 use rackend_core::auth::{PasskeyRow, SessionRow, SubjectType, Superuser};
+use rackend_core::domain::files::FileRow;
 use rackend_core::domain::{
     ActorType, AuditEntry, Collection, DdlStep, HistoryEntry, Record, TrashEntry, TrashKind,
 };
@@ -296,6 +297,30 @@ impl SqliteTx<'_> {
         let rows = stmt.query_map(params, f).map_err(sql)?;
         rows.collect::<rusqlite::Result<Vec<_>>>().map_err(sql)
     }
+}
+
+const FILE_COLS: &str = "id, collection_id, record_id, field, storage_key, original_name, size, mime, width, height, sha256, created, deleted_at";
+
+fn file_from_row(r: &Row<'_>) -> rusqlite::Result<FileRow> {
+    Ok(FileRow {
+        id: r.get(0)?,
+        collection_id: r.get(1)?,
+        record_id: r.get(2)?,
+        field: r.get(3)?,
+        storage_key: r.get(4)?,
+        original_name: r.get(5)?,
+        size: u64::try_from(r.get::<_, i64>(6)?).unwrap_or(0),
+        mime: r.get(7)?,
+        width: r
+            .get::<_, Option<i64>>(8)?
+            .and_then(|n| u32::try_from(n).ok()),
+        height: r
+            .get::<_, Option<i64>>(9)?
+            .and_then(|n| u32::try_from(n).ok()),
+        sha256: r.get(10)?,
+        created: r.get(11)?,
+        deleted_at: r.get(12)?,
+    })
 }
 
 impl ReadTx for SqliteTx<'_> {
@@ -611,6 +636,55 @@ impl ReadTx for SqliteTx<'_> {
                 })
             },
         )
+    }
+
+    fn file_by_key(&mut self, storage_key: &str) -> CoreResult<Option<FileRow>> {
+        self.conn
+            .query_row(
+                &format!(
+                    "SELECT {FILE_COLS} FROM _files WHERE storage_key = ?1 AND deleted_at IS NULL"
+                ),
+                [storage_key],
+                file_from_row,
+            )
+            .optional()
+            .map_err(sql)
+    }
+
+    fn files_deleted(&mut self, limit: u32) -> CoreResult<Vec<FileRow>> {
+        self.collect(
+            &format!("SELECT {FILE_COLS} FROM _files WHERE deleted_at IS NOT NULL ORDER BY deleted_at LIMIT ?1"),
+            [limit],
+            file_from_row,
+        )
+    }
+
+    fn files_known_keys(&mut self, keys: &[String]) -> CoreResult<Vec<String>> {
+        let mut out = Vec::new();
+        for chunk in keys.chunks(500) {
+            let marks = vec!["?"; chunk.len()].join(", ");
+            out.extend(self.collect(
+                &format!("SELECT storage_key FROM _files WHERE storage_key IN ({marks})"),
+                params_from_iter(chunk.iter()),
+                |r| r.get(0),
+            )?);
+        }
+        Ok(out)
+    }
+
+    fn files_usage(&mut self) -> CoreResult<(u64, u64)> {
+        self.conn
+            .query_row(
+                "SELECT count(*), coalesce(sum(size), 0) FROM _files WHERE deleted_at IS NULL",
+                [],
+                |r| {
+                    Ok((
+                        u64::try_from(r.get::<_, i64>(0)?).unwrap_or(0),
+                        u64::try_from(r.get::<_, i64>(1)?).unwrap_or(0),
+                    ))
+                },
+            )
+            .map_err(sql)
     }
 }
 
@@ -998,5 +1072,72 @@ impl WriteTx for SqliteTx<'_> {
             .execute("DELETE FROM _keys", [])
             .map(|n| n as u64)
             .map_err(sql)
+    }
+
+    fn file_insert(&mut self, f: &FileRow) -> CoreResult<()> {
+        self.conn
+            .execute(
+                &format!("INSERT INTO _files ({FILE_COLS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"),
+                params![
+                    f.id,
+                    f.collection_id,
+                    f.record_id,
+                    f.field,
+                    f.storage_key,
+                    f.original_name,
+                    i64::try_from(f.size).unwrap_or(i64::MAX),
+                    f.mime,
+                    f.width,
+                    f.height,
+                    f.sha256,
+                    f.created,
+                    f.deleted_at
+                ],
+            )
+            .map(drop)
+            .map_err(sql)
+    }
+
+    fn files_mark_deleted(&mut self, storage_keys: &[String], now: &str) -> CoreResult<u64> {
+        let mut n = 0;
+        for k in storage_keys {
+            n += self
+                .conn
+                .execute(
+                    "UPDATE _files SET deleted_at = ?2 WHERE storage_key = ?1 AND deleted_at IS NULL",
+                    [k.as_str(), now],
+                )
+                .map_err(sql)? as u64;
+        }
+        Ok(n)
+    }
+
+    fn files_mark_deleted_where(
+        &mut self,
+        collection_id: &str,
+        record_id: Option<&str>,
+        field: Option<&str>,
+        now: &str,
+    ) -> CoreResult<u64> {
+        self.conn
+            .execute(
+                "UPDATE _files SET deleted_at = ?4
+                 WHERE collection_id = ?1 AND deleted_at IS NULL
+                   AND (?2 IS NULL OR record_id = ?2) AND (?3 IS NULL OR field = ?3)",
+                params![collection_id, record_id, field, now],
+            )
+            .map(|n| n as u64)
+            .map_err(sql)
+    }
+
+    fn files_remove(&mut self, ids: &[String]) -> CoreResult<u64> {
+        let mut n = 0;
+        for id in ids {
+            n += self
+                .conn
+                .execute("DELETE FROM _files WHERE id = ?1", [id])
+                .map_err(sql)? as u64;
+        }
+        Ok(n)
     }
 }

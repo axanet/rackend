@@ -32,6 +32,7 @@ impl App {
         }
         if n > 0 {
             self.reload_schema().await?;
+            self.after_file_changes();
         }
         Ok(n)
     }

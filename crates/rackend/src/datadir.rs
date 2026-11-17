@@ -66,7 +66,7 @@ impl DataDir {
             fs::remove_dir_all(&tmp)
                 .map_err(|e| Fatal::startup(format!("cannot wipe {}: {e}", tmp.display())))?;
         }
-        for dir in [tmp, root.join("backups")] {
+        for dir in [tmp, root.join("backups"), root.join("storage")] {
             fs::create_dir_all(&dir)
                 .map_err(|e| Fatal::startup(format!("cannot create {}: {e}", dir.display())))?;
         }
@@ -86,6 +86,16 @@ impl DataDir {
     /// `logs.db`.
     pub fn logs_db(&self) -> PathBuf {
         self.root.join("logs.db")
+    }
+
+    /// `storage/`: the filesystem blob backend.
+    pub fn storage(&self) -> PathBuf {
+        self.root.join("storage")
+    }
+
+    /// `tmp/`: uploads in flight; wiped on start.
+    pub fn tmp(&self) -> PathBuf {
+        self.root.join("tmp")
     }
 
     /// `backups/`.

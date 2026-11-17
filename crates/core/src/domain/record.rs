@@ -296,7 +296,9 @@ fn apply_modifier(
             };
             Ok(number_json(n))
         }
-        (FieldKind::Select { .. } | FieldKind::Relation { .. }, _) if f.is_multi() => {
+        (FieldKind::Select { .. } | FieldKind::Relation { .. } | FieldKind::File { .. }, _)
+            if f.is_multi() =>
+        {
             let items: Vec<Value> = match input {
                 Value::Array(a) => a.clone(),
                 Value::String(_) => vec![input.clone()],

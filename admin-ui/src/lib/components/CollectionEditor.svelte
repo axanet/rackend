@@ -11,7 +11,8 @@
 
 	let { collection }: { collection: Collection | null } = $props();
 
-	const TYPES: FieldType[] = ['text', 'email', 'url', 'number', 'bool', 'date', 'autodate', 'select', 'json', 'relation'];
+	const TYPES: FieldType[] = ['text', 'email', 'url', 'number', 'bool', 'date', 'autodate', 'select', 'json', 'relation', 'file'];
+	const MB = 1024 * 1024;
 	const OPS: RuleOp[] = ['list', 'view', 'create', 'update', 'delete'];
 
 	const AUTH_DEFAULTS: AuthOptions = {
@@ -100,6 +101,14 @@
 		if (type === 'autodate') {
 			f.on_create = true;
 			f.on_update = false;
+		}
+		if (type === 'file') {
+			f.max_select = 1;
+			f.max_size = 10 * MB;
+			f.mime_types = [];
+			f.thumbs = [];
+			f.protected = false;
+			f.strip_metadata = true;
 		}
 	}
 
@@ -336,6 +345,25 @@
 						<label class="field">Max selected<input type="number" min="1" value={f.max_select ?? 1} oninput={(e) => (f.max_select = num(e.currentTarget.value))} /></label>
 					{:else if f.type === 'json'}
 						<label class="field">Max bytes<input type="number" min="1" value={f.max_size ?? ''} placeholder="1048576" oninput={(e) => (f.max_size = num(e.currentTarget.value))} /></label>
+					{:else if f.type === 'file'}
+						<label class="field">Max files<input type="number" min="1" value={f.max_select ?? 1} oninput={(e) => (f.max_select = num(e.currentTarget.value))} /></label>
+						<label class="field">
+							Max size (MB)
+							<input
+								type="number"
+								min="0.01"
+								step="any"
+								value={typeof f.max_size === 'number' ? Math.round((f.max_size / MB) * 100) / 100 : 10}
+								oninput={(e) => {
+									const v = num(e.currentTarget.value);
+									f.max_size = v === null ? null : Math.max(1, Math.round(v * MB));
+								}}
+							/>
+						</label>
+						<label class="field grow">Allowed types<input type="text" class="mono" value={list(f.mime_types)} oninput={(e) => (f.mime_types = toList(e.currentTarget.value))} placeholder="any; e.g. image/*" /></label>
+						<label class="field grow" title="100x100 is always allowed">Thumb sizes<input type="text" class="mono" value={list(f.thumbs)} oninput={(e) => (f.thumbs = toList(e.currentTarget.value))} placeholder="e.g. 300x0, 64x64f" /></label>
+						<label class="inline" title="Downloads need a short-lived file token, so links cannot be shared"><input type="checkbox" checked={!!f.protected} onchange={(e) => (f.protected = e.currentTarget.checked)} />Protected</label>
+						<label class="inline" title="Removes EXIF, GPS and other metadata from JPEG, PNG and WebP uploads"><input type="checkbox" checked={f.strip_metadata !== false} onchange={(e) => (f.strip_metadata = e.currentTarget.checked)} />Strip metadata</label>
 					{:else if f.type === 'relation'}
 						<label class="field grow">
 							Collection

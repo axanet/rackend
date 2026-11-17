@@ -10,8 +10,10 @@ use uuid::Uuid;
 
 use super::audit::{entry, record_diff};
 use super::compiled::CompiledSchema;
+use super::files::Upload;
 use super::{App, Principal, RequestCtx};
 use crate::domain::field::{FieldKind, OnDelete};
+use crate::domain::files::{self, FileRow};
 use crate::domain::record::{
     normalize_auth_values, prepare_create, prepare_update, take_auth_input,
 };
@@ -463,16 +465,167 @@ fn outcome(w: &WriteCtx, c: &Collection, r: &Record) -> Map<String, Value> {
     m
 }
 
+/// File names of `files` per field name.
+fn uploaded_names(c: &Collection, files: &[FileRow]) -> BTreeMap<String, Vec<String>> {
+    let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for row in files {
+        if let Some(f) = c.fields.iter().find(|f| f.id.to_string() == row.field) {
+            out.entry(f.name.clone())
+                .or_default()
+                .push(row.filename().to_owned());
+        }
+    }
+    out
+}
+
+fn file_names(v: Option<&Value>) -> Vec<String> {
+    match v {
+        Some(Value::String(s)) if !s.is_empty() => vec![s.clone()],
+        Some(Value::Array(a)) => a
+            .iter()
+            .filter_map(|x| x.as_str().map(str::to_owned))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn file_value(multi: bool, names: Vec<String>) -> Value {
+    if multi {
+        Value::Array(names.into_iter().map(Value::String).collect())
+    } else {
+        names.into_iter().next().map_or(Value::Null, Value::String)
+    }
+}
+
+/// On create, file fields are set only by uploads (SPEC §12.3).
+fn inject_uploads(
+    c: &Collection,
+    body: &Map<String, Value>,
+    files: &[FileRow],
+) -> Result<Map<String, Value>> {
+    let mut body = body.clone();
+    let mut errs = ValidationErrors::default();
+    let uploaded = uploaded_names(c, files);
+    for f in c
+        .fields
+        .iter()
+        .filter(|f| matches!(f.kind, FieldKind::File { .. }))
+    {
+        for k in [
+            f.name.clone(),
+            format!("{}+", f.name),
+            format!("+{}", f.name),
+            format!("{}-", f.name),
+        ] {
+            if body
+                .get(&k)
+                .is_some_and(|v| !crate::domain::record::value_is_empty(v))
+            {
+                errs.add(
+                    k,
+                    FieldError::new("upload_required", "Upload files with multipart/form-data."),
+                );
+            }
+        }
+        if let Some(names) = uploaded.get(&f.name) {
+            body.insert(f.name.clone(), file_value(f.is_multi(), names.clone()));
+        }
+    }
+    errs.into_result()?;
+    Ok(body)
+}
+
+/// On update, a file field may keep a subset of its files (set or `field-`);
+/// uploads are appended (multi) or replace the file (single). Returns the
+/// storage keys of removed files.
+fn apply_file_changes(
+    c: &Collection,
+    current: &Record,
+    changes: &mut Map<String, Value>,
+    files: &[FileRow],
+) -> Result<Vec<String>> {
+    let uploaded = uploaded_names(c, files);
+    let mut errs = ValidationErrors::default();
+    let mut removed = Vec::new();
+    for f in c
+        .fields
+        .iter()
+        .filter(|f| matches!(f.kind, FieldKind::File { .. }))
+    {
+        let cur = file_names(current.data.get(&f.name));
+        let up = uploaded.get(&f.name).cloned().unwrap_or_default();
+        let touched = changes.contains_key(&f.name);
+        if !touched && up.is_empty() {
+            continue;
+        }
+        let mut new = if touched {
+            file_names(changes.get(&f.name))
+        } else {
+            cur.clone()
+        };
+        if let Some(bad) = new.iter().find(|n| !cur.contains(n)) {
+            errs.add(
+                f.name.clone(),
+                FieldError::new(
+                    "unknown_file",
+                    "Only files of this record can be kept; upload new ones.",
+                )
+                .param("value", bad.clone()),
+            );
+            continue;
+        }
+        if f.is_multi() {
+            new.extend(up);
+        } else if !up.is_empty() {
+            new = up;
+        }
+        match f
+            .normalize(&file_value(f.is_multi(), new.clone()))
+            .and_then(|v| f.check_required(&v).map(|()| v))
+        {
+            Ok(v) => {
+                changes.insert(f.name.clone(), v);
+            }
+            Err(e) => {
+                errs.add(f.name.clone(), e);
+                continue;
+            }
+        }
+        let id = current.id.to_string();
+        removed.extend(
+            cur.iter()
+                .filter(|n| !new.contains(n))
+                .map(|n| files::storage_key(&c.id.to_string(), &id, n)),
+        );
+    }
+    errs.into_result()?;
+    Ok(removed)
+}
+
+/// What a record write carries besides its JSON body.
+#[derive(Debug, Clone, Copy, Default)]
+struct Extras<'a> {
+    /// New Argon2id hash for auth records.
+    password_hash: Option<&'a str>,
+    /// Files stored for this write (rows to insert).
+    files: &'a [FileRow],
+}
+
 fn create_in_tx(
     tx: &mut dyn WriteTx,
     w: &WriteCtx,
     key: &str,
     body: &Map<String, Value>,
-    password_hash: Option<&str>,
+    x: Extras<'_>,
 ) -> Result<WriteOutcome> {
+    let Extras {
+        password_hash,
+        files,
+    } = x;
     let c = collection(&w.compiled, key)?.clone();
     let rule = access(&w.compiled, &c, RuleOp::Create, w.superuser)?;
     let now = format_timestamp(w.now);
+    let body = &inject_uploads(&c, body, files)?;
     let mut plan = prepare_create(&c, body, &now).map_err(Error::Validation)?;
     normalize_auth_values(&c, &mut plan.values);
     check_relations(tx, &w.compiled, &c, &plan.values)?;
@@ -484,6 +637,12 @@ fn create_in_tx(
     };
     tx.record_insert(&c, &record)?;
     let id = record.id.to_string();
+    for f in files {
+        if f.record_id != id {
+            return Err(Error::internal("upload stored for another record id"));
+        }
+        tx.file_insert(f)?;
+    }
     if password_hash.is_some() {
         tx.auth_password_set(&c, &id, password_hash)?;
     }
@@ -511,8 +670,12 @@ fn update_in_tx(
     id: &str,
     body: &Map<String, Value>,
     expected: Option<&str>,
-    password_hash: Option<&str>,
+    x: Extras<'_>,
 ) -> Result<WriteOutcome> {
+    let Extras {
+        password_hash,
+        files,
+    } = x;
     let c = collection(&w.compiled, key)?.clone();
     let current = tx.record_get(&c, id)?.ok_or(Error::NotFound)?;
     if !viewable(tx, &w.compiled, &c, id, &w.req, w.superuser)? {
@@ -528,9 +691,14 @@ fn update_in_tx(
     if_match(expected, &current)?;
     let now = format_timestamp(w.now);
     let mut plan = prepare_update(&c, &current, body, &now).map_err(Error::Validation)?;
+    let removed = apply_file_changes(&c, &current, &mut plan.changes, files)?;
     normalize_auth_values(&c, &mut plan.changes);
     check_relations(tx, &w.compiled, &c, &plan.changes)?;
     tx.record_update(&c, id, &now, &plan.changes)?;
+    for f in files {
+        tx.file_insert(f)?;
+    }
+    tx.files_mark_deleted(&removed, &now)?;
     if password_hash.is_some() {
         tx.auth_password_set(&c, id, password_hash)?;
         let mut e = entry(&w.actor, "auth.password.change", w.now);
@@ -587,6 +755,12 @@ fn delete_record(
     cause: Option<&str>,
 ) -> Result<Option<String>> {
     tx.record_delete(c, &r.id.to_string())?;
+    tx.files_mark_deleted_where(
+        &c.id.to_string(),
+        Some(&r.id.to_string()),
+        None,
+        &format_timestamp(w.now),
+    )?;
     if c.auth().is_some() {
         // A deleted user loses every session and passkey (SPEC §11.5).
         tx.sessions_revoke_for(
@@ -705,6 +879,19 @@ fn cascade(
 }
 
 impl App {
+    /// Starts the file cleanup when any collection has file fields (deletes
+    /// and batches may remove files, also through cascades).
+    fn after_file_changes_if_any(&self) {
+        let compiled = self.schema.get();
+        if compiled.schema.all().iter().any(|c| {
+            c.fields
+                .iter()
+                .any(|f| matches!(f.kind, FieldKind::File { .. }))
+        }) {
+            self.after_file_changes();
+        }
+    }
+
     fn write_ctx(&self, ctx: &RequestCtx) -> WriteCtx {
         WriteCtx {
             compiled: self.schema.get(),
@@ -849,6 +1036,18 @@ impl App {
         key: &str,
         body: Map<String, Value>,
     ) -> Result<WriteOutcome> {
+        self.record_create_with_files(ctx, key, body, Vec::new())
+            .await
+    }
+
+    /// Creates a record with uploaded files (multipart, SPEC §12.3).
+    pub async fn record_create_with_files(
+        &self,
+        ctx: &RequestCtx,
+        key: &str,
+        body: Map<String, Value>,
+        uploads: Vec<Upload>,
+    ) -> Result<WriteOutcome> {
         let mut body = body;
         let compiled = self.schema.get();
         let c = collection(&compiled, key)?.clone();
@@ -891,11 +1090,43 @@ impl App {
                 );
             }
         }
+        let files = if uploads.is_empty() {
+            Vec::new()
+        } else {
+            // Storage keys contain the record id, so it is fixed up front.
+            let id = match body.get("id") {
+                None => {
+                    let id = Uuid::now_v7().to_string();
+                    body.insert("id".into(), Value::String(id.clone()));
+                    id
+                }
+                Some(v) => v
+                    .as_str()
+                    .and_then(|s| Uuid::try_parse(s).ok())
+                    .map(|u| u.to_string())
+                    .ok_or_else(|| {
+                        Error::field("id", FieldError::new("invalid_id", "Must be a UUID."))
+                    })?,
+            };
+            self.store_uploads(&c, &id, uploads, ctx.now).await?
+        };
+        let keys: Vec<String> = files.iter().map(|f| f.storage_key.clone()).collect();
         let w = self.write_ctx(ctx);
         let key = key.to_owned();
-        self.store
-            .write(move |tx| create_in_tx(tx, &w, &key, &body, hash.as_deref()))
-            .await
+        let res = self
+            .store
+            .write(move |tx| {
+                let x = Extras {
+                    password_hash: hash.as_deref(),
+                    files: &files,
+                };
+                create_in_tx(tx, &w, &key, &body, x)
+            })
+            .await;
+        if res.is_err() {
+            self.delete_blobs(&keys).await;
+        }
+        res
     }
 
     /// Checks the password policy and hashes it off the async threads.
@@ -915,6 +1146,20 @@ impl App {
         id: &str,
         body: Map<String, Value>,
         if_match: Option<String>,
+    ) -> Result<WriteOutcome> {
+        self.record_update_with_files(ctx, key, id, body, if_match, Vec::new())
+            .await
+    }
+
+    /// Updates a record with uploaded files (multipart, SPEC §12.3).
+    pub async fn record_update_with_files(
+        &self,
+        ctx: &RequestCtx,
+        key: &str,
+        id: &str,
+        body: Map<String, Value>,
+        if_match: Option<String>,
+        uploads: Vec<Upload>,
     ) -> Result<WriteOutcome> {
         let mut body = body;
         let compiled = self.schema.get();
@@ -955,8 +1200,21 @@ impl App {
                 );
             }
         }
+        let record_id = Uuid::try_parse(id)
+            .map_err(|_| Error::NotFound)?
+            .to_string();
+        let files = if uploads.is_empty() {
+            Vec::new()
+        } else {
+            self.store_uploads(&c, &record_id, uploads, ctx.now).await?
+        };
+        let keys: Vec<String> = files.iter().map(|f| f.storage_key.clone()).collect();
+        let has_files = c
+            .fields
+            .iter()
+            .any(|f| matches!(f.kind, FieldKind::File { .. }));
         let w = self.write_ctx(ctx);
-        let (key2, id2) = (key.to_owned(), id.to_owned());
+        let (key2, id2) = (key.to_owned(), record_id);
         let changed_password = hash.is_some();
         let out = self
             .store
@@ -968,10 +1226,23 @@ impl App {
                     &id2,
                     &body,
                     if_match.as_deref(),
-                    hash.as_deref(),
+                    Extras {
+                        password_hash: hash.as_deref(),
+                        files: &files,
+                    },
                 )
             })
-            .await?;
+            .await;
+        let out = match out {
+            Ok(o) => o,
+            Err(e) => {
+                self.delete_blobs(&keys).await;
+                return Err(e);
+            }
+        };
+        if has_files {
+            self.after_file_changes();
+        }
         if changed_password {
             // Other sessions end; the caller's own session (if it is this user) stays.
             let keep = match &ctx.principal {
@@ -1004,6 +1275,7 @@ impl App {
         // Sessions of deleted users (also via cascades) are revoked in the
         // transaction; drop the cache so their tokens fail immediately.
         self.sessions.invalidate_all();
+        self.after_file_changes_if_any();
         Ok(())
     }
 
@@ -1047,7 +1319,10 @@ impl App {
             })
             .await;
         match outcome {
-            Ok(results) => Ok(Ok(results)),
+            Ok(results) => {
+                self.after_file_changes_if_any();
+                Ok(Ok(results))
+            }
             Err(Error::Internal(e)) => match e.downcast::<BatchAbort>() {
                 Ok(mut abort) => match abort.0.take() {
                     Some(failure) => Ok(Err(failure)),
@@ -1094,14 +1369,14 @@ fn run_batch_item(tx: &mut dyn WriteTx, w: &WriteCtx, item: &BatchItem) -> Resul
     }
     match (item.method.to_ascii_uppercase().as_str(), id) {
         ("POST", None) => {
-            let out = create_in_tx(tx, w, key, &item.body, None)?;
+            let out = create_in_tx(tx, w, key, &item.body, Extras::default())?;
             Ok(BatchResult {
                 status: if out.is_some() { 201 } else { 204 },
                 body: out.map(Value::Object),
             })
         }
         ("PATCH", Some(id)) => {
-            let out = update_in_tx(tx, w, key, id, &item.body, None, None)?;
+            let out = update_in_tx(tx, w, key, id, &item.body, None, Extras::default())?;
             Ok(BatchResult {
                 status: if out.is_some() { 200 } else { 204 },
                 body: out.map(Value::Object),

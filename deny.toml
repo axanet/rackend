@@ -6,6 +6,11 @@ all-features = true
 [advisories]
 version = 2
 yanked = "deny"
+# Unmaintained notices only for crates we depend on directly: we cannot
+# replace a dependency's dependency (chrono and humantime via object_store,
+# a tar crate via testcontainers). Vulnerabilities still fail everywhere.
+# ADR 0012.
+unmaintained = "workspace"
 ignore = [
     # rsa Marvin attack: fixed by the 0.10 series (crypto-bigint, constant
     # time). We pin 0.10.0-rc.19 because webauthn-rs (crypto-glue) requires
@@ -25,6 +30,10 @@ allow = [
   "Zlib",
   "Unicode-3.0",
   "MPL-2.0",
+  # ADR 0012: TLS for S3 (rustls, aws-lc, webpki roots)
+  "ISC",
+  "MIT-0",
+  "CDLA-Permissive-2.0",
 ]
 
 [licenses.private]

@@ -26,6 +26,13 @@ pub static DATA_MIGRATIONS: &[Migration] = &[
         rust: None,
         foreign_keys_off: false,
     },
+    Migration {
+        id: 4,
+        name: "files",
+        sql: include_str!("../../migrations/data/0004_files.sql"),
+        rust: None,
+        foreign_keys_off: false,
+    },
 ];
 
 /// Migrations of `logs.db` (its own track, SPEC §7.3).

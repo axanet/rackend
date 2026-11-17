@@ -64,6 +64,9 @@ pub struct HttpOptions {
     pub dev: bool,
     /// `RACKEND_TRUSTED_PROXIES`; when empty, `security.trusted_proxies` applies.
     pub trusted_proxies: Vec<net::Cidr>,
+    /// Where uploads are streamed before they are stored (`{data}/tmp`).
+    /// Defaults to the system temp directory.
+    pub tmp_dir: Option<std::path::PathBuf>,
 }
 
 impl AppState {
@@ -91,6 +94,27 @@ impl AppState {
             .iter()
             .filter_map(|c| net::Cidr::parse(c))
             .collect()
+    }
+
+    /// Directory for upload temp files.
+    pub fn tmp_dir(&self) -> std::path::PathBuf {
+        self.inner
+            .opts
+            .tmp_dir
+            .clone()
+            .unwrap_or_else(std::env::temp_dir)
+    }
+
+    /// `limits.max_json_body_kb` in bytes.
+    pub fn max_json_body_bytes(&self) -> u64 {
+        u64::try_from(
+            self.inner
+                .app
+                .settings()
+                .int("limits", "max_json_body_kb", 1024),
+        )
+        .unwrap_or(1024)
+        .saturating_mul(1024)
     }
 
     /// The rate limiters.
@@ -339,6 +363,18 @@ pub fn routes() -> Vec<RouteSpec> {
         ),
         r(Method::DELETE, "/api/trash/{id}", "/api/trash/x"),
         r(Method::POST, "/api/rules/check", "/api/rules/check"),
+        r(
+            Method::GET,
+            "/api/files/{c}/{id}/{filename}",
+            "/api/files/posts/x/a_abcdefgh.png",
+        ),
+        r(Method::POST, "/api/files/token", "/api/files/token"),
+        r(Method::GET, "/api/files/usage", "/api/files/usage"),
+        r(
+            Method::POST,
+            "/api/settings/test-storage",
+            "/api/settings/test-storage",
+        ),
         r(Method::GET, "/api/settings", "/api/settings"),
         r(Method::PATCH, "/api/settings", "/api/settings"),
         r(Method::GET, "/api/audit", "/api/audit"),
@@ -350,7 +386,7 @@ pub fn routes() -> Vec<RouteSpec> {
 
 /// The full application router with all middleware.
 pub fn router(state: AppState, cfg: HttpConfig) -> Router {
-    use api::{admin, auth, collections, records, users};
+    use api::{admin, auth, collections, files, records, users};
     let app = Router::new()
         .route("/api/health", get(health::health))
         .route("/api/info", get(auth::info))
@@ -436,16 +472,22 @@ pub fn router(state: AppState, cfg: HttpConfig) -> Router {
                 .delete(collections::delete),
         )
         .route("/api/collections/{c}/history", get(collections::history))
+        // Record writes read their body themselves: JSON (limit from the
+        // settings) or multipart with per-field file limits (SPEC §10.1).
         .route(
             "/api/collections/{c}/records",
-            get(records::list).post(records::create),
+            get(records::list).merge(post(records::create).layer(DefaultBodyLimit::disable())),
         )
         .route(
             "/api/collections/{c}/records/{id}",
             get(records::view)
-                .patch(records::update)
+                .merge(patch(records::update).layer(DefaultBodyLimit::disable()))
                 .delete(records::delete),
         )
+        .route("/api/files/token", post(files::token))
+        .route("/api/files/usage", get(files::usage))
+        .route("/api/files/{c}/{id}/{filename}", get(files::download))
+        .route("/api/settings/test-storage", post(files::test_storage))
         .route("/api/batch", post(records::batch))
         .route("/api/trash", get(collections::trash_list))
         .route("/api/trash/{id}/restore", post(collections::trash_restore))

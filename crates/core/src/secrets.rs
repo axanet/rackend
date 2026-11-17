@@ -36,6 +36,8 @@ pub enum SecretError {
 #[derive(Clone)]
 pub struct SecretBox {
     cipher: XChaCha20Poly1305,
+    /// Key for MACs (file tokens), derived from the secret key.
+    mac_key: [u8; 32],
 }
 
 impl std::fmt::Debug for SecretBox {
@@ -47,9 +49,27 @@ impl std::fmt::Debug for SecretBox {
 impl SecretBox {
     /// A box for `key`.
     pub fn new(key: &[u8; 32]) -> Self {
+        use sha2::Digest as _;
+        let mut h = sha2::Sha256::new();
+        h.update(b"rackend mac key v1\0");
+        h.update(key);
         Self {
             cipher: XChaCha20Poly1305::new(key.into()),
+            mac_key: h.finalize().into(),
         }
+    }
+
+    /// HMAC-SHA256 of `msg` under a key derived from the secret key and
+    /// `label` (domain separation). Rotating the secret key invalidates MACs.
+    pub fn mac(&self, label: &str, msg: &[u8]) -> [u8; 32] {
+        use hmac::{KeyInit as _, Mac as _};
+        let Ok(mut m) = hmac::Hmac::<sha2::Sha256>::new_from_slice(&self.mac_key) else {
+            return [0; 32];
+        };
+        m.update(label.as_bytes());
+        m.update(b"\0");
+        m.update(msg);
+        m.finalize().into_bytes().into()
     }
 
     /// A new random key.

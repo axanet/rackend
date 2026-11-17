@@ -21,6 +21,8 @@ pub enum UnavailableReason {
     ShuttingDown,
     /// The instance is applying migrations (SPEC §5.4).
     Migrating,
+    /// The file storage backend failed (SPEC §12).
+    Storage,
 }
 
 impl fmt::Display for UnavailableReason {
@@ -29,6 +31,7 @@ impl fmt::Display for UnavailableReason {
             Self::WriterQueueFull => "the server is busy",
             Self::ShuttingDown => "the server is shutting down",
             Self::Migrating => "the server is applying migrations",
+            Self::Storage => "the file storage is unavailable",
         })
     }
 }
@@ -142,6 +145,9 @@ pub enum Error {
     /// An `If-Match` precondition failed.
     #[error("precondition failed")]
     PreconditionFailed,
+    /// An uploaded file's type is not allowed for its field (per field).
+    #[error("unsupported media type")]
+    UnsupportedMediaType(ValidationErrors),
     /// A body exceeds a size limit.
     #[error("payload too large (max {max_bytes} bytes)")]
     PayloadTooLarge {

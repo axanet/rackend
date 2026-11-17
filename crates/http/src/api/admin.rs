@@ -16,13 +16,18 @@ pub async fn settings_get(State(state): State<AppState>, Ctx(ctx): Ctx) -> ApiRe
     Ok(ok(state.app().settings_get(&ctx)?))
 }
 
-/// `PATCH /api/settings`.
+/// `PATCH /api/settings` (`?force=true` allows switching the storage
+/// backend while files exist).
 pub async fn settings_patch(
     State(state): State<AppState>,
     Ctx(ctx): Ctx,
     Json(body): Json<Value>,
 ) -> ApiResult {
-    Ok(ok(state.app().settings_patch(&ctx, body).await?))
+    let force = super::flag(&ctx.query, "force");
+    Ok(ok(state
+        .app()
+        .settings_patch_with(&ctx, body, force)
+        .await?))
 }
 
 /// `GET /api/audit?actor_type=&actor_id=&action=&collection_id=&record_id=&from=&to=&page=&per_page=&sort=`.

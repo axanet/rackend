@@ -67,6 +67,7 @@ problem_codes! {
     PreconditionFailed => ("precondition_failed", 412, "Precondition failed"),
     PayloadTooLarge => ("payload_too_large", 413, "Payload too large"),
     UnsupportedMediaType => ("unsupported_media_type", 415, "Unsupported media type"),
+    RangeNotSatisfiable => ("range_not_satisfiable", 416, "Range not satisfiable"),
     RateLimited => ("rate_limited", 429, "Too many requests"),
     SmtpNotConfigured => ("smtp_not_configured", 409, "SMTP is not configured"),
     PublicUrlNotConfigured => ("public_url_not_configured", 409, "Public URL is not configured"),
@@ -97,6 +98,7 @@ impl ProblemCode {
             412 => Self::PreconditionFailed,
             413 => Self::PayloadTooLarge,
             415 => Self::UnsupportedMediaType,
+            416 => Self::RangeNotSatisfiable,
             429 => Self::RateLimited,
             503 => Self::Unavailable,
             s if (400..500).contains(&s) => Self::BadRequest,
@@ -311,6 +313,23 @@ impl From<CoreError> for ApiError {
                 ProblemCode::PreconditionFailed,
                 "The record was changed since you read it (If-Match).",
             ),
+            CoreError::UnsupportedMediaType(errs) => {
+                let mut p = Problem::new(ProblemCode::UnsupportedMediaType)
+                    .with_detail("A file type is not allowed for its field.");
+                for (k, v) in errs.0 {
+                    p.errors.insert(
+                        k,
+                        v.into_iter()
+                            .map(|e| FieldError {
+                                code: e.code.to_owned(),
+                                message: e.message,
+                                params: e.params,
+                            })
+                            .collect(),
+                    );
+                }
+                p.into()
+            }
             CoreError::PayloadTooLarge { max_bytes } => {
                 let mut p = Problem::new(ProblemCode::PayloadTooLarge);
                 p.max_bytes = Some(max_bytes);
@@ -341,6 +360,9 @@ impl From<CoreError> for ApiError {
                     }
                     UnavailableReason::Migrating => {
                         "The server is applying migrations. Retry shortly."
+                    }
+                    UnavailableReason::Storage => {
+                        "The file storage is unavailable. Retry shortly or check the storage settings."
                     }
                     _ => "The service is temporarily unavailable. Retry shortly.",
                 });

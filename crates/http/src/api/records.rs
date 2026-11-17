@@ -63,15 +63,21 @@ pub async fn view(
     Ok(with_etag(ok(Value::Object(r.clone())), &r))
 }
 
-/// `POST /api/collections/{c}/records`. Returns 204 when the caller may not
-/// view the created record.
+/// `POST /api/collections/{c}/records` (JSON or multipart). Returns 204
+/// when the caller may not view the created record.
 pub async fn create(
     State(state): State<AppState>,
     Ctx(ctx): Ctx,
     Path(c): Path<String>,
-    Json(body): Json<Map<String, Value>>,
+    req: axum::extract::Request,
 ) -> ApiResult {
-    Ok(match state.app().record_create(&ctx, &c, body).await? {
+    let input = super::input::record_input(&state, &c, req).await?;
+    let out = state
+        .app()
+        .record_create_with_files(&ctx, &c, input.body, input.uploads)
+        .await?;
+    drop(input.tmp);
+    Ok(match out {
         Some(r) => with_etag(
             (StatusCode::CREATED, Json(Value::Object(r.clone()))).into_response(),
             &r,
@@ -80,24 +86,25 @@ pub async fn create(
     })
 }
 
-/// `PATCH /api/collections/{c}/records/{id}` (`If-Match` supported).
+/// `PATCH /api/collections/{c}/records/{id}` (JSON or multipart,
+/// `If-Match` supported).
 pub async fn update(
     State(state): State<AppState>,
     Ctx(ctx): Ctx,
     headers: HeaderMap,
     Path((c, id)): Path<(String, String)>,
-    Json(body): Json<Map<String, Value>>,
+    req: axum::extract::Request,
 ) -> ApiResult {
-    Ok(
-        match state
-            .app()
-            .record_update(&ctx, &c, &id, body, if_match(&headers))
-            .await?
-        {
-            Some(r) => with_etag(ok(Value::Object(r.clone())), &r),
-            None => no_content(),
-        },
-    )
+    let input = super::input::record_input(&state, &c, req).await?;
+    let out = state
+        .app()
+        .record_update_with_files(&ctx, &c, &id, input.body, if_match(&headers), input.uploads)
+        .await?;
+    drop(input.tmp);
+    Ok(match out {
+        Some(r) => with_etag(ok(Value::Object(r.clone())), &r),
+        None => no_content(),
+    })
 }
 
 /// `DELETE /api/collections/{c}/records/{id}` (`If-Match` supported).

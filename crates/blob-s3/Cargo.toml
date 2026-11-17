@@ -11,6 +11,20 @@ workspace = true
 
 [dependencies]
 rackend-core = { workspace = true }
+object_store = { workspace = true }
+futures-util = { workspace = true }
+bytes = { workspace = true }
+tokio = { workspace = true, features = ["fs", "io-util"] }
+time = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+testcontainers = { workspace = true }
+reqwest = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
 
 [features]
 # S3 contract tests against MinIO and Garage (requires Docker), SPEC §12.2.

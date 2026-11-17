@@ -4,6 +4,7 @@ pub mod audit;
 pub mod collection;
 pub mod ddl;
 pub mod field;
+pub mod files;
 pub mod history;
 pub mod names;
 pub mod record;

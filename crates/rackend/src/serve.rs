@@ -19,6 +19,8 @@ const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
 const OPTIMIZE_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
 /// Trash purge, audit retention and session cleanup interval.
 const MAINTENANCE_EVERY: Duration = Duration::from_secs(60 * 60);
+/// File GC (orphans, removed files) and thumbnail cache GC: at start, then daily.
+const FILES_GC_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// Runs the server until SIGTERM/SIGINT.
 pub async fn run(cfg: Config, version: &'static str) -> Result<(), Fatal> {
@@ -87,6 +89,7 @@ pub async fn run(cfg: Config, version: &'static str) -> Result<(), Fatal> {
             public_url: cfg.public_url.clone(),
             encryption_key: cfg.encryption_key,
             reset_secrets: cfg.reset_secrets,
+            data_dir: dir.root().to_path_buf(),
         },
     )
     .await
@@ -143,6 +146,27 @@ pub async fn run(cfg: Config, version: &'static str) -> Result<(), Fatal> {
             }
         })
     };
+    let files_gc = {
+        let app = Arc::clone(&app);
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(FILES_GC_EVERY);
+            loop {
+                tick.tick().await;
+                match app
+                    .files_gc(rackend_core::usecases::files::ORPHAN_MIN_AGE)
+                    .await
+                {
+                    Ok(report) => tracing::info!(%report, "file garbage collection done"),
+                    Err(e) => tracing::warn!(error = %e, "file garbage collection failed"),
+                }
+                match app.thumbs_gc().await {
+                    Ok(0) => {}
+                    Ok(n) => tracing::info!(deleted = n, "trimmed the thumbnail cache"),
+                    Err(e) => tracing::warn!(error = %e, "thumbnail cache GC failed"),
+                }
+            }
+        })
+    };
     let maintenance = {
         let app = Arc::clone(&app);
         tokio::spawn(async move {
@@ -176,6 +200,7 @@ pub async fn run(cfg: Config, version: &'static str) -> Result<(), Fatal> {
         rackend_http::HttpOptions {
             dev: cfg.dev,
             trusted_proxies: cfg.trusted_proxies.clone(),
+            tmp_dir: Some(dir.tmp()),
         },
     );
     let (stop_tx, stop_rx) = oneshot::channel::<()>();
@@ -217,6 +242,7 @@ pub async fn run(cfg: Config, version: &'static str) -> Result<(), Fatal> {
         }
     }
     keys.abort();
+    files_gc.abort();
     optimize.abort();
     maintenance.abort();
     if let Err(e) = data.shutdown().await {

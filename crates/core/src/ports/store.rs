@@ -12,6 +12,7 @@ use serde_json::{Map, Value};
 
 use crate::auth::keys::KeyRow;
 use crate::auth::{PasskeyRow, SessionRow, Superuser};
+use crate::domain::files::FileRow;
 use crate::domain::{AuditEntry, Collection, DdlStep, Field, HistoryEntry, Record, TrashEntry};
 use crate::rules::TypedRule;
 use crate::rules::eval::RequestValues;
@@ -179,6 +180,15 @@ pub trait ReadTx {
     fn passkey_by_credential(&mut self, credential_id: &str) -> Result<Option<PasskeyRow>>;
     /// All signing keys, oldest first.
     fn keys_list(&mut self) -> Result<Vec<KeyRow>>;
+
+    /// A live (not deleted) file by storage key.
+    fn file_by_key(&mut self, storage_key: &str) -> Result<Option<FileRow>>;
+    /// Files marked deleted, oldest first.
+    fn files_deleted(&mut self, limit: u32) -> Result<Vec<FileRow>>;
+    /// Which of `keys` have a `_files` row (live or deleted).
+    fn files_known_keys(&mut self, keys: &[String]) -> Result<Vec<String>>;
+    /// Live files and their total size in bytes.
+    fn files_usage(&mut self) -> Result<(u64, u64)>;
 }
 
 /// Repository methods available inside a write transaction.
@@ -264,6 +274,22 @@ pub trait WriteTx: ReadTx {
     fn key_set_private(&mut self, kid: &str, private_enc: &str) -> Result<()>;
     /// Deletes all signing keys (secrets reset).
     fn keys_delete_all(&mut self) -> Result<u64>;
+
+    /// Inserts a file row.
+    fn file_insert(&mut self, f: &FileRow) -> Result<()>;
+    /// Marks files deleted by storage key.
+    fn files_mark_deleted(&mut self, storage_keys: &[String], now: &str) -> Result<u64>;
+    /// Marks the files of a collection deleted, optionally only of one
+    /// record or one field (field id).
+    fn files_mark_deleted_where(
+        &mut self,
+        collection_id: &str,
+        record_id: Option<&str>,
+        field: Option<&str>,
+        now: &str,
+    ) -> Result<u64>;
+    /// Removes rows (after their blobs are gone).
+    fn files_remove(&mut self, ids: &[String]) -> Result<u64>;
 }
 
 /// Transactional access to the database.

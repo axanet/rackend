@@ -21,6 +21,15 @@ pub fn defaults() -> Value {
         "metrics": { "retention_days": 7, "prometheus_public": false },
         "backups": { "schedule": "0 3 * * *", "keep": 7, "include_storage": true },
         "schema": { "trash_retention_days": 30 },
+        "storage": {
+            "backend": "fs",
+            "s3": {
+                "endpoint": "", "region": "us-east-1", "bucket": "", "prefix": "",
+                "access_key_id": "", "secret_access_key": null,
+                "force_path_style": true, "allow_http": false, "redirect_downloads": false
+            },
+            "thumb_cache_max_mb": 2048
+        },
         "limits": { "max_json_body_kb": 1024, "batch_max_requests": 50, "rule_timeout_ms": 2000 },
         "realtime": {
             "max_connections_per_ip": 100, "max_subscriptions_per_connection": 100,
@@ -29,9 +38,54 @@ pub fn defaults() -> Value {
     })
 }
 
-/// Keys whose values are secrets. Writing them needs encryption at rest,
-/// which arrives with M2 (SecretBox).
-const SECRET_SECTIONS: &[&str] = &["smtp", "storage", "email_templates"];
+/// Sections that are not writable yet: their features arrive later (M6).
+const UNAVAILABLE_SECTIONS: &[&str] = &["smtp", "email_templates"];
+
+/// Settings that are secrets: stored encrypted (`enc:v1:`), shown as
+/// [`MASK`], never in audit diffs (SPEC §15, §17.4).
+pub const SECRET_PATHS: &[&str] = &["storage.s3.secret_access_key"];
+
+/// How a stored secret is shown. Sending it back unchanged keeps the secret.
+pub const MASK: &str = "\u{2022}\u{2022}\u{2022}\u{2022}";
+
+/// Whether a section holds secrets.
+pub fn section_has_secrets(section: &str) -> bool {
+    SECRET_PATHS
+        .iter()
+        .any(|p| p.split('.').next() == Some(section))
+}
+
+/// Replaces set secrets with [`MASK`] (unset ones stay `null`).
+pub fn mask_secrets(v: &mut Value) {
+    for path in SECRET_PATHS {
+        let mut cur = &mut *v;
+        let mut parts = path.split('.').peekable();
+        while let Some(p) = parts.next() {
+            let Some(next) = cur.get_mut(p) else { break };
+            if parts.peek().is_none() {
+                if next.as_str().is_some_and(|s| !s.is_empty()) {
+                    *next = Value::String(MASK.into());
+                } else {
+                    *next = Value::Null;
+                }
+                break;
+            }
+            cur = next;
+        }
+    }
+}
+
+/// Merges `stored` over `base` key by key, recursing into objects. Keys
+/// unknown to `base` are dropped.
+fn deep_merge(base: &mut Map<String, Value>, stored: Map<String, Value>) {
+    for (k, v) in stored {
+        match (base.get_mut(&k), v) {
+            (Some(Value::Object(b)), Value::Object(s)) => deep_merge(b, s),
+            (Some(slot), v) => *slot = v,
+            (None, _) => {}
+        }
+    }
+}
 
 /// A settings section with its merged new contents.
 pub type SectionUpdate = (String, Map<String, Value>);
@@ -59,11 +113,7 @@ impl Settings {
                 values.get_mut(&row.key),
                 serde_json::from_str::<Value>(&row.value),
             ) {
-                for (k, v) in stored {
-                    if base.contains_key(&k) {
-                        base.insert(k, v);
-                    }
-                }
+                deep_merge(base, stored);
             }
         }
         Self { values }
@@ -134,74 +184,36 @@ impl Settings {
             ));
         };
         for (section, changes) in patch {
-            if SECRET_SECTIONS.contains(&section.as_str()) {
+            if UNAVAILABLE_SECTIONS.contains(&section.as_str()) {
                 errs.add(
                     section.clone(),
                     FieldError::new(
                         "not_available",
-                        "This section needs encryption at rest, which is not available yet.",
+                        "This section is not available in this version yet.",
                     ),
                 );
                 continue;
             }
-            let (Some(def), Some(current)) = (
-                defaults.get(section).and_then(Value::as_object),
-                self.section(section),
-            ) else {
+            let (Some(def), Some(current)) = (defaults.get(section), self.values.get(section))
+            else {
                 errs.add(
                     section.clone(),
                     FieldError::new("unknown_field", "Unknown settings section."),
                 );
                 continue;
             };
-            let Some(changes) = changes.as_object() else {
+            if !changes.is_object() {
                 errs.add(
                     section.clone(),
                     FieldError::new("invalid_type", "Must be an object."),
                 );
                 continue;
-            };
-            let mut merged = current.clone();
-            for (k, v) in changes {
-                let path = format!("{section}.{k}");
-                let Some(d) = def.get(k) else {
-                    errs.add(path, FieldError::new("unknown_field", "Unknown setting."));
-                    continue;
-                };
-                let ok = match (d, v) {
-                    (Value::Null, Value::Null | Value::String(_)) => true,
-                    (Value::Bool(_), Value::Bool(_)) | (Value::String(_), Value::String(_)) => true,
-                    (Value::Number(dn), Value::Number(n)) => !dn.is_u64() || n.is_u64(),
-                    (Value::Array(_), Value::Array(a)) => a.iter().all(Value::is_string),
-                    // Nested objects of counters: known keys, non-negative integers.
-                    (Value::Object(dm), Value::Object(m)) => {
-                        m.iter().all(|(k, x)| dm.contains_key(k) && x.is_u64())
-                    }
-                    _ => false,
-                };
-                if !ok {
-                    errs.add(
-                        path,
-                        FieldError::new("invalid_type", "Wrong type for this setting."),
-                    );
-                    continue;
-                }
-                if let Err(e) = check_value(section, k, v) {
-                    errs.add(path, e);
-                    continue;
-                }
-                match (merged.get_mut(k), v) {
-                    // Partial updates of nested objects keep the other keys.
-                    (Some(Value::Object(cur)), Value::Object(m)) => {
-                        for (mk, mv) in m {
-                            cur.insert(mk.clone(), mv.clone());
-                        }
-                    }
-                    _ => {
-                        merged.insert(k.clone(), v.clone());
-                    }
-                }
             }
+            let Some(Value::Object(merged)) =
+                merge_checked(section, def, current, changes, &mut errs)
+            else {
+                continue;
+            };
             out.push((section.clone(), merged));
         }
         if errs.is_empty() { Ok(out) } else { Err(errs) }
@@ -242,8 +254,92 @@ fn is_cidr(s: &str) -> bool {
     prefix.is_none_or(|p| p.parse::<u8>().is_ok_and(|p| p <= max))
 }
 
-fn check_value(section: &str, key: &str, v: &Value) -> Result<(), FieldError> {
+/// Type-checks `v` against the default `def` and merges it over `cur`.
+/// Objects merge key by key; a secret sent back as [`MASK`] keeps its value.
+fn merge_checked(
+    path: &str,
+    def: &Value,
+    cur: &Value,
+    v: &Value,
+    errs: &mut ValidationErrors,
+) -> Option<Value> {
+    if SECRET_PATHS.contains(&path) {
+        return match v {
+            Value::String(s) if s == MASK => Some(cur.clone()),
+            Value::String(s) if s.is_empty() => Some(Value::Null),
+            Value::Null | Value::String(_) => Some(v.clone()),
+            _ => {
+                errs.add(path, FieldError::new("invalid_type", "Must be a string."));
+                None
+            }
+        };
+    }
+    if let (Value::Object(dm), Value::Object(m)) = (def, v) {
+        let mut out = cur.as_object().cloned().unwrap_or_else(|| dm.clone());
+        let mut ok = true;
+        for (k, x) in m {
+            let p = format!("{path}.{k}");
+            let Some(d) = dm.get(k) else {
+                errs.add(p, FieldError::new("unknown_field", "Unknown setting."));
+                ok = false;
+                continue;
+            };
+            let c = out.get(k).cloned().unwrap_or_else(|| d.clone());
+            match merge_checked(&p, d, &c, x, errs) {
+                Some(n) => {
+                    out.insert(k.clone(), n);
+                }
+                None => ok = false,
+            }
+        }
+        return ok.then_some(Value::Object(out));
+    }
+    let type_ok = match (def, v) {
+        (Value::Null, Value::Null | Value::String(_)) => true,
+        (Value::Bool(_), Value::Bool(_)) | (Value::String(_), Value::String(_)) => true,
+        (Value::Number(dn), Value::Number(n)) => !dn.is_u64() || n.is_u64(),
+        (Value::Array(_), Value::Array(a)) => a.iter().all(Value::is_string),
+        _ => false,
+    };
+    if !type_ok {
+        errs.add(
+            path,
+            FieldError::new("invalid_type", "Wrong type for this setting."),
+        );
+        return None;
+    }
+    if let Err(e) = check_value(path, v) {
+        errs.add(path, e);
+        return None;
+    }
+    Some(v.clone())
+}
+
+fn check_value(path: &str, v: &Value) -> Result<(), FieldError> {
+    let (section, key) = path.split_once('.').unwrap_or((path, ""));
     match (section, key) {
+        ("storage", "backend") if !matches!(v.as_str(), Some("fs" | "s3")) => {
+            Err(FieldError::new("invalid_option", "One of fs, s3."))
+        }
+        ("storage", "s3.endpoint")
+            if v.as_str().is_some_and(|u| {
+                !u.is_empty() && !(u.starts_with("https://") || u.starts_with("http://"))
+            }) =>
+        {
+            Err(FieldError::new(
+                "invalid_url",
+                "An http(s) URL, e.g. https://s3.eu-central-1.amazonaws.com.",
+            ))
+        }
+        ("storage", "s3.prefix")
+            if v.as_str()
+                .is_some_and(|p| !p.is_empty() && !crate::domain::files::is_safe_key(p)) =>
+        {
+            Err(FieldError::new(
+                "invalid_option",
+                "A relative path without leading or trailing slashes.",
+            ))
+        }
         ("security", "trusted_proxies")
             if v.as_array()
                 .is_some_and(|a| a.iter().any(|x| !x.as_str().is_some_and(is_cidr))) =>
