@@ -2,10 +2,15 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 mod audit_fault;
+mod broker;
 mod common;
+mod email_auth;
 mod error_contract;
 mod files;
 mod flows;
+#[cfg(feature = "keycloak-tests")]
+mod keycloak;
+mod mock_idp;
 mod observe;
 mod realtime;
 mod rule_matrix;

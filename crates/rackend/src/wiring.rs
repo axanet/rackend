@@ -6,7 +6,8 @@ use std::sync::Arc;
 use rackend_blob_fs::FsBlobStore;
 use rackend_blob_s3::S3BlobStore;
 use rackend_core::ports::{
-    BlobError, BlobStore, BlobStoreFactory, Clock, StorageConfig, SystemClock,
+    BlobError, BlobStore, BlobStoreFactory, Clock, IdpClient, MailerFactory, StorageConfig,
+    SystemClock,
 };
 use rackend_core::usecases::{App, AppConfig, secrets};
 use rackend_http::{AppState, HttpConfig, HttpOptions};
@@ -47,6 +48,12 @@ pub struct AppOptions {
     pub reset_secrets: bool,
     /// The data directory (`storage/` and `tmp/` live there).
     pub data_dir: PathBuf,
+    /// `RACKEND_DEV`.
+    pub dev: bool,
+    /// Replaces the SMTP mailer (tests capture email this way).
+    pub mailer_factory: Option<Arc<dyn MailerFactory>>,
+    /// Replaces the external provider client.
+    pub idp: Option<Arc<dyn IdpClient>>,
 }
 
 /// Loads the application on top of an opened store: secrets, settings,
@@ -85,6 +92,13 @@ pub async fn app(
             logs: Arc::new(logs),
             host: Arc::new(rackend_host_metrics::Host::new(&opts.data_dir)),
             backups: Arc::new(backups),
+            mailer_factory: opts
+                .mailer_factory
+                .unwrap_or_else(|| Arc::new(rackend_mail_smtp::SmtpFactory)),
+            idp: opts
+                .idp
+                .unwrap_or_else(|| Arc::new(rackend_idp_client::Idp::default())),
+            dev_mode: opts.dev,
         },
     )
     .await

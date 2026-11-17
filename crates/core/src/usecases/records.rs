@@ -435,7 +435,7 @@ fn if_match(expected: Option<&str>, current: &Record) -> Result<()> {
 
 /// Everything a write needs, owned so it can move into the write closure.
 #[derive(Clone)]
-struct WriteCtx {
+pub(crate) struct WriteCtx {
     compiled: Arc<CompiledSchema>,
     req: RequestValues,
     actor: Actor,
@@ -462,9 +462,67 @@ impl WriteCtx {
         });
     }
 
-    fn take_events(&self) -> Vec<RecordChange> {
+    pub(crate) fn take_events(&self) -> Vec<RecordChange> {
         std::mem::take(&mut *self.events.borrow_mut())
     }
+}
+
+/// Changes fields of a record on behalf of the server (email verified, email
+/// changed): no rules apply, the change is published and audited like any
+/// other. Returns the record after the change.
+pub(crate) fn system_update(
+    tx: &mut dyn WriteTx,
+    w: &WriteCtx,
+    c: &Collection,
+    current: &Record,
+    mut changes: Map<String, Value>,
+) -> Result<Record> {
+    let now = format_timestamp(w.now);
+    normalize_auth_values(c, &mut changes);
+    let id = current.id.to_string();
+    tx.record_update(c, &id, &now, &changes)?;
+    let mut after = current.clone();
+    after.updated = now;
+    for (k, v) in changes {
+        after.data.insert(k, v);
+    }
+    w.emit(c, Action::Update, Some(current), Some(&after));
+    if c.options.audit_records {
+        let mut e = entry(&w.actor, "record.update", w.now);
+        e.collection_id = Some(c.id.to_string());
+        e.record_id = Some(id);
+        e.diff = Some(record_diff(c, Some(&current.data), Some(&after.data)));
+        tx.audit_insert(&e)?;
+    }
+    Ok(after)
+}
+
+/// Creates a record on behalf of the server (sign-up through a provider).
+pub(crate) fn system_create(
+    tx: &mut dyn WriteTx,
+    w: &WriteCtx,
+    c: &Collection,
+    body: &Map<String, Value>,
+) -> Result<Record> {
+    let now = format_timestamp(w.now);
+    let mut plan = prepare_create(c, body, &now).map_err(Error::Validation)?;
+    normalize_auth_values(c, &mut plan.values);
+    let record = Record {
+        id: plan.id.unwrap_or_else(Uuid::now_v7),
+        created: now.clone(),
+        updated: now,
+        data: plan.values,
+    };
+    tx.record_insert(c, &record)?;
+    w.emit(c, Action::Create, None, Some(&record));
+    if c.options.audit_records {
+        let mut e = entry(&w.actor, "record.create", w.now);
+        e.collection_id = Some(c.id.to_string());
+        e.record_id = Some(record.id.to_string());
+        e.diff = Some(record_diff(c, None, Some(&record.data)));
+        tx.audit_insert(&e)?;
+    }
+    Ok(record)
 }
 
 /// Outcome of a write: the record JSON if the caller may view it.
@@ -801,6 +859,7 @@ fn delete_record(
             &format_timestamp(w.now),
         )?;
         tx.passkeys_delete_for(&r.id.to_string())?;
+        tx.identities_delete_for(&r.id.to_string())?;
     }
     if !c.options.audit_records {
         return Ok(None);
@@ -929,7 +988,16 @@ impl App {
         }
     }
 
-    fn write_ctx(&self, ctx: &RequestCtx) -> WriteCtx {
+    /// A write context for changes the server makes itself, as `actor`.
+    pub(crate) fn system_write_ctx(&self, ctx: &RequestCtx, actor: Actor) -> WriteCtx {
+        WriteCtx {
+            actor,
+            superuser: true,
+            ..self.write_ctx(ctx)
+        }
+    }
+
+    pub(crate) fn write_ctx(&self, ctx: &RequestCtx) -> WriteCtx {
         WriteCtx {
             compiled: self.schema.get(),
             req: ctx.request_values(),

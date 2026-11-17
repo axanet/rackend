@@ -673,12 +673,13 @@ impl App {
         let c = compiled.schema.by_id_or_name(key).ok_or(Error::NotFound)?;
         let o = c.auth().ok_or(Error::NotFound)?;
         let public_url = self.settings().public_url().is_some();
+        let smtp = self.smtp_configured();
         Ok(json!({
             "password": { "enabled": o.methods.password, "identity_fields": ["email"] },
             "passkey": { "enabled": o.methods.passkey && public_url },
-            "otp": { "enabled": false },
-            "magic_link": { "enabled": false },
-            "providers": [],
+            "otp": { "enabled": o.methods.otp && smtp },
+            "magic_link": { "enabled": o.methods.magic_link && smtp },
+            "providers": if public_url { self.providers_for(c) } else { Vec::new() },
             "signup_enabled": o.signup_enabled,
         }))
     }

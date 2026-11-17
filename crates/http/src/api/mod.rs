@@ -2,6 +2,7 @@
 
 pub mod admin;
 pub mod auth;
+pub mod broker;
 pub mod collections;
 pub mod files;
 pub mod input;

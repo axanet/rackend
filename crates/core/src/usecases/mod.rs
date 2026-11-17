@@ -3,12 +3,15 @@
 
 pub mod audit;
 pub mod auth;
+pub mod broker;
 pub mod collections;
 pub mod compiled;
 pub mod ctx;
+pub mod email_auth;
 pub mod files;
 pub mod first_boot;
 pub mod jobs;
+pub mod mail;
 pub mod observe;
 pub mod passkeys;
 pub mod realtime;
@@ -24,8 +27,8 @@ use tokio::sync::Semaphore;
 use crate::Result;
 use crate::domain::Schema;
 use crate::ports::{
-    Backups, BlobStore, BlobStoreFactory, Clock, HostMetrics, ImageProcessor, LogsStore, Spawner,
-    Store, StoreExt,
+    Backups, BlobStore, BlobStoreFactory, Clock, HostMetrics, IdpClient, ImageProcessor, LogsStore,
+    Mailer, MailerFactory, Spawner, Store, StoreExt,
 };
 use crate::secrets::SecretBox;
 use crate::settings::Settings;
@@ -77,6 +80,16 @@ pub struct App {
     pub observe: observe::ObserveState,
     /// Realtime hub (SPEC §13).
     pub hub: crate::realtime::Hub,
+    /// Enabled external providers.
+    pub(crate) providers: broker::ProviderCache,
+    /// Builds mailers from the `smtp` settings.
+    pub(crate) mailer_factory: Arc<dyn MailerFactory>,
+    /// The current mailer, `None` while SMTP is not configured.
+    pub(crate) mailer: RwLock<Option<Arc<dyn Mailer>>>,
+    /// External identity providers (SPEC §11.7).
+    pub idp: Arc<dyn IdpClient>,
+    /// Dev mode: `http://localhost:*` redirect URIs are allowed.
+    pub dev_mode: bool,
     /// This app, for background tasks spawned from `&self` methods.
     pub(crate) me: std::sync::Weak<App>,
 }
@@ -100,6 +113,12 @@ pub struct AppConfig {
     pub host: Arc<dyn HostMetrics>,
     /// Backups.
     pub backups: Arc<dyn Backups>,
+    /// Builds mailers (SMTP).
+    pub mailer_factory: Arc<dyn MailerFactory>,
+    /// External identity providers.
+    pub idp: Arc<dyn IdpClient>,
+    /// `RACKEND_DEV`.
+    pub dev_mode: bool,
 }
 
 impl App {
@@ -135,10 +154,17 @@ impl App {
             backups: cfg.backups,
             observe: observe::ObserveState::default(),
             hub: crate::realtime::Hub::default(),
+            mailer_factory: cfg.mailer_factory,
+            mailer: RwLock::new(None),
+            providers: broker::ProviderCache::default(),
+            idp: cfg.idp,
+            dev_mode: cfg.dev_mode,
             me: me.clone(),
         });
         app.reload_settings().await?;
         app.rebuild_blobs();
+        app.rebuild_mailer();
+        app.reload_providers().await?;
         app.realtime_start();
         app.observe_start();
         app.reload_schema().await?;

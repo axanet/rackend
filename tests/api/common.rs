@@ -20,7 +20,66 @@ pub struct TestApp {
     pub dir: tempfile::TempDir,
 }
 
+/// Adapters a test replaces.
+#[derive(Default)]
+pub struct Overrides {
+    pub mailer_factory: Option<Arc<dyn rackend_core::ports::MailerFactory>>,
+    pub idp: Option<Arc<dyn rackend_core::ports::IdpClient>>,
+    pub dev: bool,
+}
+
+/// Captures email instead of sending it.
+#[derive(Debug, Clone, Default)]
+pub struct Outbox(pub Arc<std::sync::Mutex<Vec<rackend_core::ports::Email>>>);
+
+impl rackend_core::ports::Mailer for Outbox {
+    fn send(
+        &self,
+        email: rackend_core::ports::Email,
+    ) -> rackend_core::ports::BoxFuture<'_, Result<(), rackend_core::ports::MailError>> {
+        self.0.lock().unwrap().push(email);
+        Box::pin(async { Ok(()) })
+    }
+}
+
+impl rackend_core::ports::MailerFactory for Outbox {
+    fn build(
+        &self,
+        _: &rackend_core::ports::SmtpConfig,
+    ) -> Result<Arc<dyn rackend_core::ports::Mailer>, rackend_core::ports::MailError> {
+        Ok(Arc::new(self.clone()))
+    }
+}
+
+impl Outbox {
+    /// Emails sent to `to` so far.
+    pub fn to(&self, to: &str) -> Vec<rackend_core::ports::Email> {
+        self.0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| e.to == to)
+            .cloned()
+            .collect()
+    }
+
+    /// Waits (mail goes out in the background) for the `n`th email to `to`.
+    pub async fn wait(&self, to: &str, n: usize) -> rackend_core::ports::Email {
+        for _ in 0..200 {
+            if let Some(e) = self.to(to).get(n - 1) {
+                return e.clone();
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        panic!("no email #{n} to {to}");
+    }
+}
+
 pub async fn start_empty() -> (Arc<App>, Router, tempfile::TempDir) {
+    start_empty_with(Overrides::default()).await
+}
+
+pub async fn start_empty_with(o: Overrides) -> (Arc<App>, Router, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let paths = DataDbPaths {
         db: dir.path().join("data.db"),
@@ -46,6 +105,9 @@ pub async fn start_empty() -> (Arc<App>, Router, tempfile::TempDir) {
         rackend::wiring::AppOptions {
             version: "0.0.0-test",
             data_dir: dir.path().to_path_buf(),
+            mailer_factory: o.mailer_factory,
+            idp: o.idp,
+            dev: o.dev,
             ..Default::default()
         },
     )
@@ -62,7 +124,11 @@ pub async fn start_empty() -> (Arc<App>, Router, tempfile::TempDir) {
 }
 
 pub async fn start() -> TestApp {
-    let (app, router, dir) = start_empty().await;
+    start_with(Overrides::default()).await
+}
+
+pub async fn start_with(o: Overrides) -> TestApp {
+    let (app, router, dir) = start_empty_with(o).await;
     assert!(
         app.ensure_superuser(ADMIN_EMAIL, ADMIN_PASSWORD)
             .await

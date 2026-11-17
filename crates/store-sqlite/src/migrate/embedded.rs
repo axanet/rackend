@@ -33,6 +33,13 @@ pub static DATA_MIGRATIONS: &[Migration] = &[
         rust: None,
         foreign_keys_off: false,
     },
+    Migration {
+        id: 5,
+        name: "auth_broker",
+        sql: include_str!("../../migrations/data/0005_auth_broker.sql"),
+        rust: None,
+        foreign_keys_off: false,
+    },
 ];
 
 /// Migrations of `logs.db` (its own track, SPEC §7.3).

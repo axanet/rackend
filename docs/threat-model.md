@@ -33,15 +33,19 @@ This is a short list of the threats rackend is designed against and where each m
 - Passwords: at least 10 characters by default, at most 256, not on the 10,000 most common passwords list.
 - Hidden emails cannot be used in filters or sorts by non-superusers.
 - Passkeys (with user verification) can replace passwords; superusers can be limited to passkeys.
+- Email endpoints (verification, reset, email change, codes, magic links) answer the same way for known and unknown addresses: same status, headers and body shape (tested), mail sent in the background. They are limited to 5 requests per IP per 10 minutes and 3 per target address per hour.
 
 ## Account takeover via linking
 
 **Threat:** an attacker signs in with an external provider or an email flow and ends up attached to someone else's account.
 
-**Mitigations (M6, designed now):**
-- An external identity is linked to an existing account only when the provider reports the email as verified and the account's email is verified, or when the signed-in user links it explicitly.
-- Email change needs a token sent to the new address and, for password accounts, the current password.
-- Unlinking or deleting the last login method is refused, so nobody locks themselves out or leaves an account reachable only through a provider they no longer control.
+**Mitigations:**
+- An external identity links to an existing account by email only when the provider is trusted for it (`auto_link_verified_email`, off by default), the provider reports the email as verified, and the account's own email is verified. Any other match on email is refused (`email_in_use`); the user signs in and links the provider explicitly. Tested against a mock provider and a real Keycloak with an unverified address.
+- The account's email must be verified for an automatic link, so registering someone's address first (without access to the inbox) does not let the attacker share the account once its owner signs in with a provider.
+- Provider sign-ins use PKCE S256, a `state` bound to an encrypted HttpOnly cookie, and a `nonce`; ID tokens are fully validated (signature with the provider's advertised asymmetric algorithms, `iss`, `aud`, `exp`, `nonce`). Results reach apps only at allow-listed redirect URIs, as single-use 60 s exchange codes.
+- Email change needs a token sent to the new address and, for accounts with a password, the current password. It ends every session.
+- Password reset ends every session. Links and codes are single use and short lived; codes allow five attempts.
+- Unlinking the last way to sign in is refused, so nobody locks themselves out or leaves an account reachable only through a provider they no longer control.
 
 ## Rule misconfiguration
 

@@ -91,6 +91,8 @@ pub async fn run(cfg: Config, version: &'static str) -> Result<(), Fatal> {
             encryption_key: cfg.encryption_key,
             reset_secrets: cfg.reset_secrets,
             data_dir: dir.root().to_path_buf(),
+            dev: cfg.dev,
+            ..Default::default()
         },
     )
     .await

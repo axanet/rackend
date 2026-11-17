@@ -1,0 +1,11 @@
+[
+  { "preset": "google", "label": "Google", "kind": "oidc", "issuer": "https://accounts.google.com", "scopes": ["openid", "email", "profile"], "docs": "https://developers.google.com/identity/openid-connect/openid-connect" },
+  { "preset": "microsoft", "label": "Microsoft Entra ID", "kind": "oidc", "issuer": "https://login.microsoftonline.com/{tenant_id}/v2.0", "scopes": ["openid", "email", "profile"], "docs": "https://learn.microsoft.com/entra/identity-platform/v2-protocols-oidc", "placeholders": ["tenant_id"] },
+  { "preset": "apple", "label": "Apple", "kind": "oidc", "issuer": "https://appleid.apple.com", "scopes": ["openid", "email"], "docs": "https://developer.apple.com/documentation/sign_in_with_apple" },
+  { "preset": "gitlab", "label": "GitLab", "kind": "oidc", "issuer": "https://gitlab.com", "scopes": ["openid", "email", "profile"], "docs": "https://docs.gitlab.com/integration/openid_connect_provider/" },
+  { "preset": "authentik", "label": "Authentik", "kind": "oidc", "issuer": "https://{host}/application/o/{slug}/", "scopes": ["openid", "email", "profile"], "docs": "https://docs.goauthentik.io/add-secure-apps/providers/oauth2/", "placeholders": ["host", "slug"] },
+  { "preset": "pocket-id", "label": "Pocket ID", "kind": "oidc", "issuer": "https://{host}", "scopes": ["openid", "email", "profile"], "docs": "https://pocket-id.org/docs", "placeholders": ["host"] },
+  { "preset": "keycloak", "label": "Keycloak", "kind": "oidc", "issuer": "https://{host}/realms/{realm}", "scopes": ["openid", "email", "profile"], "docs": "https://www.keycloak.org/docs/latest/server_admin/#_oidc", "placeholders": ["host", "realm"] },
+  { "preset": "zitadel", "label": "Zitadel", "kind": "oidc", "issuer": "https://{host}", "scopes": ["openid", "email", "profile"], "docs": "https://zitadel.com/docs/guides/integrate/login/oidc", "placeholders": ["host"] },
+  { "preset": "github", "label": "GitHub", "kind": "oauth2_preset", "issuer": null, "scopes": ["read:user", "user:email"], "docs": "https://docs.github.com/apps/oauth-apps/building-oauth-apps/creating-an-oauth-app" }
+]

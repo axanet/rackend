@@ -1,5 +1,6 @@
 //! Ports: traits implemented by adapters (SPEC §4.3).
 
+mod auth_ext;
 mod blob;
 mod clock;
 mod id;
@@ -7,6 +8,10 @@ mod observe;
 mod spawner;
 mod store;
 
+pub use auth_ext::{
+    Email, IdpClient, IdpConfig, IdpError, IdpStart, IdpUser, MailError, Mailer, MailerFactory,
+    SmtpConfig, SmtpTls,
+};
 pub use blob::{
     BlobChunks, BlobError, BlobListItem, BlobMeta, BlobReader, BlobStore, BlobStoreFactory,
     ByteRange, ImageError, ImageInfo, ImageProcessor, NormalizedImage, S3Config, StorageConfig,

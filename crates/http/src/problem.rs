@@ -370,6 +370,9 @@ impl From<CoreError> for ApiError {
                     UnavailableReason::Storage => {
                         "The file storage is unavailable. Retry shortly or check the storage settings."
                     }
+                    UnavailableReason::IdentityProvider => {
+                        "The identity provider cannot be reached. Retry shortly or check its settings."
+                    }
                     _ => "The service is temporarily unavailable. Retry shortly.",
                 });
                 p.retry_after_s = Some(retry_after_s);

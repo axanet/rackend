@@ -23,6 +23,8 @@ pub enum UnavailableReason {
     Migrating,
     /// The file storage backend failed (SPEC §12).
     Storage,
+    /// An external identity provider cannot be reached (SPEC §11.7).
+    IdentityProvider,
 }
 
 impl fmt::Display for UnavailableReason {
@@ -32,6 +34,7 @@ impl fmt::Display for UnavailableReason {
             Self::ShuttingDown => "the server is shutting down",
             Self::Migrating => "the server is applying migrations",
             Self::Storage => "the file storage is unavailable",
+            Self::IdentityProvider => "the identity provider is unavailable",
         })
     }
 }

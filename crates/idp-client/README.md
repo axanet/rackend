@@ -1,3 +1,3 @@
 # rackend-idp-client
 
-Implements the core `IdpClient` port: OIDC discovery, authorization URLs, code exchange, ID token validation and the GitHub OAuth2 preset (SPEC §11.7). Implemented in M6.
+Implements the core `IdpClient` port (SPEC §11.7): OIDC discovery (cached 24 h), authorization URLs with PKCE S256, state and nonce, code exchange, ID token validation with key refresh on an unknown `kid`, and the GitHub OAuth2 preset. See ADR 0015.

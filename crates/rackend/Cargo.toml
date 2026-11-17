@@ -46,6 +46,8 @@ tracing-opentelemetry = { workspace = true, optional = true }
 default = ["otlp"]
 # OTLP export of traces and metrics when RACKEND_OTLP_ENDPOINT is set (SPEC §14.4).
 otlp = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:tracing-opentelemetry"]
+# Broker contract test against Keycloak (requires Docker), SPEC §20 M6.
+keycloak-tests = []
 
 [target.'cfg(target_os = "linux")'.dependencies]
 rustix = { workspace = true }
@@ -55,8 +57,9 @@ time = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+testcontainers = { workspace = true }
 rusqlite = { workspace = true }
-reqwest = { workspace = true }
+reqwest = { workspace = true, features = ["form"] }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "process"] }
 tower = { workspace = true, features = ["util"] }

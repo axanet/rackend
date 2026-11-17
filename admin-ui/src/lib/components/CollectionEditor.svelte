@@ -18,7 +18,7 @@
 	const AUTH_DEFAULTS: AuthOptions = {
 		signup_enabled: true,
 		email_visibility: false,
-		methods: { password: true, passkey: true, otp: false, magic_link: false },
+		methods: { password: true, passkey: true, otp: true, magic_link: true },
 		password: { min_length: 10, require_verified_email_to_login: false },
 		session: { access_ttl_s: 900, refresh_ttl_s: 2592000, idle_timeout_s: 1209600 }
 	};
@@ -247,8 +247,8 @@
 					<legend>Methods</legend>
 					<label class="inline"><input type="checkbox" bind:checked={draft.auth.methods.password} />Email and password</label>
 					<label class="inline"><input type="checkbox" bind:checked={draft.auth.methods.passkey} />Passkeys</label>
-					<label class="inline disabled"><input type="checkbox" disabled checked={draft.auth.methods.otp} />Email codes <span class="tag">needs SMTP</span></label>
-					<label class="inline disabled"><input type="checkbox" disabled checked={draft.auth.methods.magic_link} />Magic links <span class="tag">needs SMTP</span></label>
+					<label class="inline"><input type="checkbox" bind:checked={draft.auth.methods.otp} />Email codes <span class="tag">needs SMTP</span></label>
+					<label class="inline"><input type="checkbox" bind:checked={draft.auth.methods.magic_link} />Magic links <span class="tag">needs SMTP</span></label>
 				</fieldset>
 				<fieldset class="group">
 					<legend>Accounts</legend>
@@ -600,10 +600,6 @@
 	}
 	.auth-grid .inline {
 		height: 32px;
-	}
-	.disabled {
-		color: var(--fg-subtle);
-		cursor: default;
 	}
 	.field-row.system {
 		display: flex;

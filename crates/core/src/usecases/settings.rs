@@ -35,6 +35,7 @@ impl App {
         let current = self.settings();
         let mut sections = current.validate_patch(&patch).map_err(Error::Validation)?;
         let storage_changed = sections.iter().any(|(k, _)| k == "storage");
+        let smtp_changed = sections.iter().any(|(k, _)| k == "smtp");
         let old_backend = current.string("storage", "backend");
         if let Some((_, m)) = sections.iter().find(|(k, _)| k == "storage")
             && m.get("backend").and_then(Value::as_str) != old_backend.as_deref()
@@ -129,6 +130,9 @@ impl App {
         self.reload_settings().await?;
         if storage_changed {
             self.rebuild_blobs();
+        }
+        if smtp_changed {
+            self.rebuild_mailer();
         }
         let mut v = self.settings().to_json();
         crate::settings::mask_secrets(&mut v);

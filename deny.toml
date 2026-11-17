@@ -36,6 +36,8 @@ allow = [
   "CDLA-Permissive-2.0",
   # ADR 0014: zstd (backups)
   "BSD-2-Clause",
+  # ADR 0015: quoted_printable (lettre, SMTP)
+  "0BSD",
 ]
 
 [licenses.private]

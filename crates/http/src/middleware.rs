@@ -84,7 +84,13 @@ pub async fn problem_mapper(
     let res = next.run(req).await;
     let res = if let Some(problem) = res.extensions().get::<Problem>().cloned() {
         render(problem, &request_id, res, wants_html)
-    } else if res.status().as_u16() >= 400 && !is_problem(&res) {
+    } else if res.status().as_u16() >= 400
+        && !is_problem(&res)
+        && res
+            .extensions()
+            .get::<crate::pages::RenderedPage>()
+            .is_none()
+    {
         let mut problem = synthesize(&res, cfg);
         let text_body = is_text_plain(&res);
         let (parts, body) = res.into_parts();
@@ -247,10 +253,9 @@ pub async fn security_headers(req: Request, next: Next) -> Response {
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
     );
-    h.insert(
-        header::REFERRER_POLICY,
-        HeaderValue::from_static("strict-origin-when-cross-origin"),
-    );
+    // Hosted pages with tokens in the URL set a stricter policy themselves.
+    h.entry(header::REFERRER_POLICY)
+        .or_insert(HeaderValue::from_static("strict-origin-when-cross-origin"));
     if hosted_page {
         h.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
     }

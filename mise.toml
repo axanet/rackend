@@ -34,6 +34,10 @@ run = "cargo nextest run -p rackend-store-sqlite --test upgrade_paths"
 description = "S3 contract tests against MinIO and Garage (requires Docker)"
 run = "cargo nextest run -p rackend-blob-s3 --features contract-tests"
 
+[tasks."test:broker"]
+description = "Broker contract test against Keycloak (requires Docker)"
+run = "cargo nextest run -p rackend --test api --features keycloak-tests keycloak"
+
 [tasks.lint]
 run = [
   "cargo fmt --all --check",

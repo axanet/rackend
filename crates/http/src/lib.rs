@@ -10,6 +10,7 @@ mod health;
 pub mod html;
 pub mod middleware;
 pub mod net;
+pub mod pages;
 pub mod problem;
 pub mod ratelimit;
 pub mod ui;
@@ -305,6 +306,81 @@ pub fn routes() -> Vec<RouteSpec> {
             "/api/collections/{c}/passkeys/login/finish",
             "/api/collections/users/passkeys/login/finish",
         ),
+        r(
+            Method::POST,
+            "/api/collections/{c}/request-verification",
+            "/api/collections/users/request-verification",
+        ),
+        r(
+            Method::POST,
+            "/api/collections/{c}/confirm-verification",
+            "/api/collections/users/confirm-verification",
+        ),
+        r(
+            Method::POST,
+            "/api/collections/{c}/request-password-reset",
+            "/api/collections/users/request-password-reset",
+        ),
+        r(
+            Method::POST,
+            "/api/collections/{c}/confirm-password-reset",
+            "/api/collections/users/confirm-password-reset",
+        ),
+        r(
+            Method::POST,
+            "/api/collections/{c}/request-email-change",
+            "/api/collections/users/request-email-change",
+        ),
+        r(
+            Method::POST,
+            "/api/collections/{c}/confirm-email-change",
+            "/api/collections/users/confirm-email-change",
+        ),
+        r(
+            Method::POST,
+            "/api/collections/{c}/request-otp",
+            "/api/collections/users/request-otp",
+        ),
+        r(
+            Method::POST,
+            "/api/collections/{c}/auth-with-otp",
+            "/api/collections/users/auth-with-otp",
+        ),
+        r(
+            Method::POST,
+            "/api/collections/{c}/request-magic-link",
+            "/api/collections/users/request-magic-link",
+        ),
+        r(
+            Method::POST,
+            "/api/collections/{c}/auth-with-magic-link",
+            "/api/collections/users/auth-with-magic-link",
+        ),
+        r(
+            Method::POST,
+            "/api/collections/{c}/auth-with-exchange-code",
+            "/api/collections/users/auth-with-exchange-code",
+        ),
+        r(
+            Method::GET,
+            "/api/collections/{c}/providers/{name}/start",
+            "/api/collections/users/providers/google/start",
+        ),
+        r(
+            Method::GET,
+            "/api/collections/{c}/providers/{name}/callback",
+            "/api/collections/users/providers/google/callback",
+        ),
+        r(
+            Method::GET,
+            "/api/collections/{c}/identities",
+            "/api/collections/users/identities",
+        ),
+        r(
+            Method::DELETE,
+            "/api/collections/{c}/identities/{id}",
+            "/api/collections/users/identities/x",
+        ),
         r(Method::GET, "/api/collections", "/api/collections"),
         r(Method::POST, "/api/collections", "/api/collections"),
         r(
@@ -398,6 +474,35 @@ pub fn routes() -> Vec<RouteSpec> {
             "/api/settings/test-storage",
             "/api/settings/test-storage",
         ),
+        r(
+            Method::POST,
+            "/api/settings/test-smtp",
+            "/api/settings/test-smtp",
+        ),
+        r(Method::GET, "/api/auth-providers", "/api/auth-providers"),
+        r(Method::POST, "/api/auth-providers", "/api/auth-providers"),
+        r(
+            Method::PATCH,
+            "/api/auth-providers/{id}",
+            "/api/auth-providers/x",
+        ),
+        r(
+            Method::DELETE,
+            "/api/auth-providers/{id}",
+            "/api/auth-providers/x",
+        ),
+        r(
+            Method::POST,
+            "/api/auth-providers/discover",
+            "/api/auth-providers/discover",
+        ),
+        r(Method::GET, "/auth/page.css", "/auth/page.css"),
+        r(Method::GET, "/auth/verify", "/auth/verify"),
+        r(Method::POST, "/auth/verify", "/auth/verify"),
+        r(Method::GET, "/auth/reset", "/auth/reset"),
+        r(Method::POST, "/auth/reset", "/auth/reset"),
+        r(Method::GET, "/auth/email-change", "/auth/email-change"),
+        r(Method::POST, "/auth/email-change", "/auth/email-change"),
         r(Method::GET, "/api/settings", "/api/settings"),
         r(Method::PATCH, "/api/settings", "/api/settings"),
         r(Method::GET, "/api/audit", "/api/audit"),
@@ -409,7 +514,7 @@ pub fn routes() -> Vec<RouteSpec> {
 
 /// The full application router with all middleware.
 pub fn router(state: AppState, cfg: HttpConfig) -> Router {
-    use api::{admin, auth, collections, files, observe, realtime, records, users};
+    use api::{admin, auth, broker, collections, files, observe, realtime, records, users};
     let app = Router::new()
         .route("/api/health", get(health::health))
         .route("/api/info", get(auth::info))
@@ -481,6 +586,89 @@ pub fn router(state: AppState, cfg: HttpConfig) -> Router {
         .route(
             "/api/collections/{c}/passkeys/login/finish",
             post(users::passkey_login_finish),
+        )
+        .route(
+            "/api/collections/{c}/request-verification",
+            post(broker::request_verification),
+        )
+        .route(
+            "/api/collections/{c}/confirm-verification",
+            post(broker::confirm_verification),
+        )
+        .route(
+            "/api/collections/{c}/request-password-reset",
+            post(broker::request_password_reset),
+        )
+        .route(
+            "/api/collections/{c}/confirm-password-reset",
+            post(broker::confirm_password_reset),
+        )
+        .route(
+            "/api/collections/{c}/request-email-change",
+            post(broker::request_email_change),
+        )
+        .route(
+            "/api/collections/{c}/confirm-email-change",
+            post(broker::confirm_email_change),
+        )
+        .route(
+            "/api/collections/{c}/request-otp",
+            post(broker::request_otp),
+        )
+        .route(
+            "/api/collections/{c}/auth-with-otp",
+            post(broker::auth_with_otp),
+        )
+        .route(
+            "/api/collections/{c}/request-magic-link",
+            post(broker::request_magic_link),
+        )
+        .route(
+            "/api/collections/{c}/auth-with-magic-link",
+            post(broker::auth_with_magic_link),
+        )
+        .route(
+            "/api/collections/{c}/auth-with-exchange-code",
+            post(broker::auth_with_exchange_code),
+        )
+        .route(
+            "/api/collections/{c}/providers/{name}/start",
+            get(broker::provider_start),
+        )
+        .route(
+            "/api/collections/{c}/providers/{name}/callback",
+            get(broker::provider_callback),
+        )
+        .route("/api/collections/{c}/identities", get(broker::identities))
+        .route(
+            "/api/collections/{c}/identities/{id}",
+            delete(broker::identity_delete),
+        )
+        .route(
+            "/api/auth-providers",
+            get(broker::providers).post(broker::provider_create),
+        )
+        .route(
+            "/api/auth-providers/{id}",
+            patch(broker::provider_update).delete(broker::provider_delete),
+        )
+        .route(
+            "/api/auth-providers/discover",
+            post(broker::provider_discover),
+        )
+        .route("/api/settings/test-smtp", post(broker::test_smtp))
+        .route("/auth/page.css", get(pages::css))
+        .route(
+            "/auth/verify",
+            get(pages::verify_form).post(pages::verify_submit),
+        )
+        .route(
+            "/auth/reset",
+            get(pages::reset_form).post(pages::reset_submit),
+        )
+        .route(
+            "/auth/email-change",
+            get(pages::email_change_form).post(pages::email_change_submit),
         )
         .route(
             "/api/collections",

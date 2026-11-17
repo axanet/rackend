@@ -11,4 +11,8 @@ workspace = true
 
 [dependencies]
 rackend-core = { workspace = true }
+lettre = { workspace = true }
+tracing = { workspace = true }
 
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "io-util"] }

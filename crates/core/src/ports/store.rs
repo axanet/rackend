@@ -10,6 +10,7 @@ use std::pin::Pin;
 
 use serde_json::{Map, Value};
 
+use crate::auth::broker::{IdentityRow, OtpRow, ProviderRow, TokenPurpose, TokenRow};
 use crate::auth::keys::KeyRow;
 use crate::auth::{PasskeyRow, SessionRow, Superuser};
 use crate::domain::files::FileRow;
@@ -211,6 +212,22 @@ pub trait ReadTx {
     fn files_known_keys(&mut self, keys: &[String]) -> Result<Vec<String>>;
     /// Live files and their total size in bytes.
     fn files_usage(&mut self) -> Result<(u64, u64)>;
+
+    /// The identity with this issuer and subject.
+    fn identity_by_subject(&mut self, issuer: &str, subject: &str) -> Result<Option<IdentityRow>>;
+    /// Identities of a user.
+    fn identities_for(&mut self, user_id: &str) -> Result<Vec<IdentityRow>>;
+    /// An OTP by id.
+    fn otp_get(&mut self, id: &str) -> Result<Option<OtpRow>>;
+    /// An unused, unexpired token, without using it.
+    fn token_get(
+        &mut self,
+        hash: &str,
+        purpose: TokenPurpose,
+        now: &str,
+    ) -> Result<Option<TokenRow>>;
+    /// All providers.
+    fn providers_list(&mut self) -> Result<Vec<ProviderRow>>;
 }
 
 /// Repository methods available inside a write transaction.
@@ -312,6 +329,39 @@ pub trait WriteTx: ReadTx {
     ) -> Result<u64>;
     /// Removes rows (after their blobs are gone).
     fn files_remove(&mut self, ids: &[String]) -> Result<u64>;
+
+    /// Links an identity.
+    fn identity_insert(&mut self, i: &IdentityRow) -> Result<()>;
+    /// Records a login through an identity.
+    fn identity_touch(&mut self, id: &str, now: &str) -> Result<()>;
+    /// Unlinks an identity of `user_id`; returns whether it existed.
+    fn identity_delete(&mut self, user_id: &str, id: &str) -> Result<bool>;
+    /// Unlinks all identities of a user (user deleted).
+    fn identities_delete_for(&mut self, user_id: &str) -> Result<u64>;
+    /// Stores a single-use token.
+    fn token_insert(&mut self, t: &TokenRow) -> Result<()>;
+    /// Uses a token: returns it when it exists, has `purpose`, is unused and
+    /// not expired at `now`, and marks it used.
+    fn token_take(
+        &mut self,
+        hash: &str,
+        purpose: TokenPurpose,
+        now: &str,
+    ) -> Result<Option<TokenRow>>;
+    /// Voids unused tokens of a user for a purpose.
+    fn tokens_void(&mut self, user_id: &str, purpose: TokenPurpose, now: &str) -> Result<u64>;
+    /// Stores an OTP.
+    fn otp_insert(&mut self, o: &OtpRow) -> Result<()>;
+    /// Updates attempts / used_at of an OTP.
+    fn otp_update(&mut self, o: &OtpRow) -> Result<()>;
+    /// Voids unused OTPs of a user.
+    fn otps_void(&mut self, user_id: &str, now: &str) -> Result<u64>;
+    /// Inserts or replaces a provider.
+    fn provider_put(&mut self, p: &ProviderRow) -> Result<()>;
+    /// Deletes a provider.
+    fn provider_delete(&mut self, id: &str) -> Result<bool>;
+    /// Deletes expired or used tokens and OTPs older than `before`.
+    fn tokens_gc(&mut self, before: &str) -> Result<u64>;
 }
 
 /// Transactional access to the database.

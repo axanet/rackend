@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
+use rackend_core::auth::broker::{IdentityRow, OtpRow, ProviderRow, TokenPurpose, TokenRow};
 use rackend_core::auth::keys::KeyRow;
 use rackend_core::auth::{PasskeyRow, SessionRow, SubjectType, Superuser};
 use rackend_core::domain::files::FileRow;
@@ -329,6 +330,69 @@ fn file_from_row(r: &Row<'_>) -> rusqlite::Result<FileRow> {
         sha256: r.get(10)?,
         created: r.get(11)?,
         deleted_at: r.get(12)?,
+    })
+}
+
+const IDENTITY_COLS: &str =
+    "id, collection_id, user_id, provider_id, issuer, subject, email_at_link, created, last_login";
+
+fn identity_from_row(r: &Row<'_>) -> rusqlite::Result<IdentityRow> {
+    Ok(IdentityRow {
+        id: r.get(0)?,
+        collection_id: r.get(1)?,
+        user_id: r.get(2)?,
+        provider_id: r.get(3)?,
+        issuer: r.get(4)?,
+        subject: r.get(5)?,
+        email_at_link: r.get(6)?,
+        created: r.get(7)?,
+        last_login: r.get(8)?,
+    })
+}
+
+fn purpose_from(s: &str) -> TokenPurpose {
+    match s {
+        "verify_email" => TokenPurpose::VerifyEmail,
+        "reset_password" => TokenPurpose::ResetPassword,
+        "change_email" => TokenPurpose::ChangeEmail,
+        "magic_link" => TokenPurpose::MagicLink,
+        _ => TokenPurpose::Exchange,
+    }
+}
+
+const OTP_COLS: &str = "id, collection_id, user_id, code_hash, purpose, expires, attempts, used_at";
+
+fn otp_from_row(r: &Row<'_>) -> rusqlite::Result<OtpRow> {
+    Ok(OtpRow {
+        id: r.get(0)?,
+        collection_id: r.get(1)?,
+        user_id: r.get(2)?,
+        code_hash: r.get(3)?,
+        purpose: r.get(4)?,
+        expires: r.get(5)?,
+        attempts: u32::try_from(r.get::<_, i64>(6)?).unwrap_or(u32::MAX),
+        used_at: r.get(7)?,
+    })
+}
+
+const PROVIDER_COLS: &str = "id, name, kind, preset, issuer, client_id, client_secret_enc, scopes, collection_id, auto_link_verified_email, claim_mapping, enabled, created, updated";
+
+fn provider_from_row(r: &Row<'_>) -> rusqlite::Result<ProviderRow> {
+    Ok(ProviderRow {
+        id: r.get(0)?,
+        name: r.get(1)?,
+        kind: r.get(2)?,
+        preset: r.get(3)?,
+        issuer: r.get(4)?,
+        client_id: r.get(5)?,
+        client_secret_enc: r.get(6)?,
+        scopes: r.get(7)?,
+        collection_id: r.get(8)?,
+        auto_link_verified_email: r.get::<_, i64>(9)? != 0,
+        claim_mapping: r.get(10)?,
+        enabled: r.get::<_, i64>(11)? != 0,
+        created: r.get(12)?,
+        updated: r.get(13)?,
     })
 }
 
@@ -702,6 +766,77 @@ impl ReadTx for SqliteTx<'_> {
             )?);
         }
         Ok(out)
+    }
+
+    fn identity_by_subject(
+        &mut self,
+        issuer: &str,
+        subject: &str,
+    ) -> CoreResult<Option<IdentityRow>> {
+        self.conn
+            .query_row(
+                &format!(
+                    "SELECT {IDENTITY_COLS} FROM _identities WHERE issuer = ?1 AND subject = ?2"
+                ),
+                [issuer, subject],
+                identity_from_row,
+            )
+            .optional()
+            .map_err(sql)
+    }
+
+    fn identities_for(&mut self, user_id: &str) -> CoreResult<Vec<IdentityRow>> {
+        self.collect(
+            &format!("SELECT {IDENTITY_COLS} FROM _identities WHERE user_id = ?1 ORDER BY created"),
+            [user_id],
+            identity_from_row,
+        )
+    }
+
+    fn otp_get(&mut self, id: &str) -> CoreResult<Option<OtpRow>> {
+        self.conn
+            .query_row(
+                &format!("SELECT {OTP_COLS} FROM _otps WHERE id = ?1"),
+                [id],
+                otp_from_row,
+            )
+            .optional()
+            .map_err(sql)
+    }
+
+    fn token_get(
+        &mut self,
+        hash: &str,
+        purpose: TokenPurpose,
+        now: &str,
+    ) -> CoreResult<Option<TokenRow>> {
+        self.conn
+            .query_row(
+                "SELECT hash, purpose, collection_id, user_id, payload, expires, used_at FROM _verification_tokens
+                 WHERE hash = ?1 AND purpose = ?2 AND used_at IS NULL AND expires > ?3",
+                params![hash, purpose.as_str(), now],
+                |r| {
+                    Ok(TokenRow {
+                        hash: r.get(0)?,
+                        purpose: purpose_from(&r.get::<_, String>(1)?),
+                        collection_id: r.get(2)?,
+                        user_id: r.get(3)?,
+                        payload: r.get(4)?,
+                        expires: r.get(5)?,
+                        used_at: r.get(6)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(sql)
+    }
+
+    fn providers_list(&mut self) -> CoreResult<Vec<ProviderRow>> {
+        self.collect(
+            &format!("SELECT {PROVIDER_COLS} FROM _auth_providers ORDER BY name"),
+            [],
+            provider_from_row,
+        )
     }
 
     fn files_usage(&mut self) -> CoreResult<(u64, u64)> {
@@ -1160,6 +1295,176 @@ impl WriteTx for SqliteTx<'_> {
             )
             .map(|n| n as u64)
             .map_err(sql)
+    }
+
+    fn identity_insert(&mut self, i: &IdentityRow) -> CoreResult<()> {
+        self.conn
+            .execute(
+                &format!("INSERT INTO _identities ({IDENTITY_COLS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"),
+                params![i.id, i.collection_id, i.user_id, i.provider_id, i.issuer, i.subject, i.email_at_link, i.created, i.last_login],
+            )
+            .map(drop)
+            .map_err(sql)
+    }
+
+    fn identity_touch(&mut self, id: &str, now: &str) -> CoreResult<()> {
+        self.conn
+            .execute(
+                "UPDATE _identities SET last_login = ?2 WHERE id = ?1",
+                [id, now],
+            )
+            .map(drop)
+            .map_err(sql)
+    }
+
+    fn identity_delete(&mut self, user_id: &str, id: &str) -> CoreResult<bool> {
+        self.conn
+            .execute(
+                "DELETE FROM _identities WHERE id = ?1 AND user_id = ?2",
+                [id, user_id],
+            )
+            .map(|n| n > 0)
+            .map_err(sql)
+    }
+
+    fn identities_delete_for(&mut self, user_id: &str) -> CoreResult<u64> {
+        self.conn
+            .execute("DELETE FROM _identities WHERE user_id = ?1", [user_id])
+            .map(|n| n as u64)
+            .map_err(sql)
+    }
+
+    fn token_insert(&mut self, t: &TokenRow) -> CoreResult<()> {
+        self.conn
+            .execute(
+                "INSERT INTO _verification_tokens (hash, purpose, collection_id, user_id, payload, expires, used_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![t.hash, t.purpose.as_str(), t.collection_id, t.user_id, t.payload, t.expires, t.used_at],
+            )
+            .map(drop)
+            .map_err(sql)
+    }
+
+    fn token_take(
+        &mut self,
+        hash: &str,
+        purpose: TokenPurpose,
+        now: &str,
+    ) -> CoreResult<Option<TokenRow>> {
+        let row = self.token_get(hash, purpose, now)?;
+        if row.is_some() {
+            self.conn
+                .execute(
+                    "UPDATE _verification_tokens SET used_at = ?2 WHERE hash = ?1",
+                    [hash, now],
+                )
+                .map_err(sql)?;
+        }
+        Ok(row)
+    }
+
+    fn tokens_void(&mut self, user_id: &str, purpose: TokenPurpose, now: &str) -> CoreResult<u64> {
+        self.conn
+            .execute(
+                "UPDATE _verification_tokens SET used_at = ?3 WHERE user_id = ?1 AND purpose = ?2 AND used_at IS NULL",
+                params![user_id, purpose.as_str(), now],
+            )
+            .map(|n| n as u64)
+            .map_err(sql)
+    }
+
+    fn otp_insert(&mut self, o: &OtpRow) -> CoreResult<()> {
+        self.conn
+            .execute(
+                &format!("INSERT INTO _otps ({OTP_COLS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"),
+                params![
+                    o.id,
+                    o.collection_id,
+                    o.user_id,
+                    o.code_hash,
+                    o.purpose,
+                    o.expires,
+                    o.attempts,
+                    o.used_at
+                ],
+            )
+            .map(drop)
+            .map_err(sql)
+    }
+
+    fn otp_update(&mut self, o: &OtpRow) -> CoreResult<()> {
+        self.conn
+            .execute(
+                "UPDATE _otps SET attempts = ?2, used_at = ?3 WHERE id = ?1",
+                params![o.id, o.attempts, o.used_at],
+            )
+            .map(drop)
+            .map_err(sql)
+    }
+
+    fn otps_void(&mut self, user_id: &str, now: &str) -> CoreResult<u64> {
+        self.conn
+            .execute(
+                "UPDATE _otps SET used_at = ?2 WHERE user_id = ?1 AND used_at IS NULL",
+                [user_id, now],
+            )
+            .map(|n| n as u64)
+            .map_err(sql)
+    }
+
+    fn provider_put(&mut self, p: &ProviderRow) -> CoreResult<()> {
+        self.conn
+            .execute(
+                &format!("INSERT OR REPLACE INTO _auth_providers ({PROVIDER_COLS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"),
+                params![
+                    p.id,
+                    p.name,
+                    p.kind,
+                    p.preset,
+                    p.issuer,
+                    p.client_id,
+                    p.client_secret_enc,
+                    p.scopes,
+                    p.collection_id,
+                    p.auto_link_verified_email,
+                    p.claim_mapping,
+                    p.enabled,
+                    p.created,
+                    p.updated
+                ],
+            )
+            .map(drop)
+            .map_err(|e| match e {
+                rusqlite::Error::SqliteFailure(f, _) if f.code == rusqlite::ErrorCode::ConstraintViolation => {
+                    CoreError::Conflict("A provider with this name exists.".into())
+                }
+                other => sql(other),
+            })
+    }
+
+    fn provider_delete(&mut self, id: &str) -> CoreResult<bool> {
+        self.conn
+            .execute("DELETE FROM _auth_providers WHERE id = ?1", [id])
+            .map(|n| n > 0)
+            .map_err(sql)
+    }
+
+    fn tokens_gc(&mut self, before: &str) -> CoreResult<u64> {
+        let a = self
+            .conn
+            .execute(
+                "DELETE FROM _verification_tokens WHERE expires < ?1 OR used_at < ?1",
+                [before],
+            )
+            .map_err(sql)?;
+        let b = self
+            .conn
+            .execute(
+                "DELETE FROM _otps WHERE expires < ?1 OR used_at < ?1",
+                [before],
+            )
+            .map_err(sql)?;
+        Ok((a + b) as u64)
     }
 
     fn files_remove(&mut self, ids: &[String]) -> CoreResult<u64> {

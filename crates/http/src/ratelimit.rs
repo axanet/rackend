@@ -6,6 +6,8 @@
 //! | `global_ip_per_min` (all `/api`) | 600 |
 //! | `login_ip_per_min` (password, OTP, passkey) | 20 |
 //! | `login_account_per_15min` | 10, then a lockout of 15 min doubling each time |
+//! | `email_ip_per_10min` (email-sending endpoints) | 5 |
+//! | `email_address_per_hour` (per target address) | 3 |
 
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -26,6 +28,10 @@ pub struct LimitConfig {
     pub login_ip_per_min: u32,
     /// Login attempts per account per 15 minutes.
     pub login_account_per_15min: u32,
+    /// Email-sending requests per IP per 10 minutes.
+    pub email_ip_per_10min: u32,
+    /// Email-sending requests per target address per hour.
+    pub email_address_per_hour: u32,
 }
 
 impl Default for LimitConfig {
@@ -34,6 +40,8 @@ impl Default for LimitConfig {
             global_ip_per_min: 600,
             login_ip_per_min: 20,
             login_account_per_15min: 10,
+            email_ip_per_10min: 5,
+            email_address_per_hour: 3,
         }
     }
 }
@@ -54,6 +62,8 @@ impl LimitConfig {
             global_ip_per_min: get("global_ip_per_min", d.global_ip_per_min),
             login_ip_per_min: get("login_ip_per_min", d.login_ip_per_min),
             login_account_per_15min: get("login_account_per_15min", d.login_account_per_15min),
+            email_ip_per_10min: get("email_ip_per_10min", d.email_ip_per_10min),
+            email_address_per_hour: get("email_address_per_hour", d.email_address_per_hour),
         }
     }
 }
@@ -73,6 +83,8 @@ struct Buckets {
     config: LimitConfig,
     global_ip: Option<DefaultKeyedRateLimiter<IpAddr>>,
     login_ip: Option<DefaultKeyedRateLimiter<IpAddr>>,
+    email_ip: Option<DefaultKeyedRateLimiter<IpAddr>>,
+    email_address: Option<DefaultKeyedRateLimiter<String>>,
 }
 
 /// All limiters of the instance.
@@ -104,17 +116,30 @@ const LOCKOUT_BASE: Duration = Duration::from_secs(15 * 60);
 impl Buckets {
     fn new(config: LimitConfig) -> Self {
         let per_min = |n: u32| NonZeroU32::new(n).map(|n| RateLimiter::keyed(Quota::per_minute(n)));
+        // `n` per `window`: a burst of `n`, refilled evenly over the window.
+        fn per<K: std::hash::Hash + Eq + Clone>(
+            n: u32,
+            window: Duration,
+        ) -> Option<DefaultKeyedRateLimiter<K>> {
+            let burst = NonZeroU32::new(n)?;
+            Quota::with_period(window / n).map(|q| RateLimiter::keyed(q.allow_burst(burst)))
+        }
         Self {
             config,
             global_ip: per_min(config.global_ip_per_min),
             login_ip: per_min(config.login_ip_per_min),
+            email_ip: per(config.email_ip_per_10min, Duration::from_secs(600)),
+            email_address: per(config.email_address_per_hour, Duration::from_secs(3600)),
         }
     }
 }
 
-fn check(limiter: Option<&DefaultKeyedRateLimiter<IpAddr>>, ip: IpAddr) -> Result<(), Limited> {
+fn check<K: std::hash::Hash + Eq + Clone>(
+    limiter: Option<&DefaultKeyedRateLimiter<K>>,
+    key: K,
+) -> Result<(), Limited> {
     let Some(l) = limiter else { return Ok(()) };
-    l.check_key(&ip).map_err(|nu| {
+    l.check_key(&key).map_err(|nu| {
         let wait = nu.wait_time_from(DefaultClock::default().now());
         Limited(u32::try_from(wait.as_secs()).unwrap_or(u32::MAX).max(1))
     })
@@ -139,6 +164,12 @@ impl RateLimits {
                 l.retain_recent();
             }
             if let Some(l) = &g.login_ip {
+                l.retain_recent();
+            }
+            if let Some(l) = &g.email_ip {
+                l.retain_recent();
+            }
+            if let Some(l) = &g.email_address {
                 l.retain_recent();
             }
         }
@@ -196,6 +227,22 @@ impl RateLimits {
         }
         a.attempts.push(now);
         Ok(())
+    }
+
+    /// An email-sending request (verification, reset, email change, OTP,
+    /// magic link): per IP, then per target address. Limited the same way
+    /// whether or not the address has an account.
+    pub fn check_email(
+        &self,
+        config: LimitConfig,
+        ip: Option<IpAddr>,
+        address: &str,
+    ) -> Result<(), Limited> {
+        let b = self.buckets(config);
+        if let Some(ip) = ip {
+            check(b.email_ip.as_ref(), ip)?;
+        }
+        check(b.email_address.as_ref(), address.trim().to_lowercase())
     }
 
     /// A successful login clears the account's attempts and lockout history.

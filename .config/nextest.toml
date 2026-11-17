@@ -1,0 +1,10 @@
+# Timing-statistics tests (no account enumeration, SPEC §11.4) measure
+# latency differences of a few percent: run them alone, after the rest.
+[test-groups]
+timing = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = "test(/timing/)"
+test-group = "timing"
+priority = -100
+threads-required = "num-test-threads"

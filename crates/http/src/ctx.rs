@@ -158,33 +158,54 @@ impl FromRequestParts<AppState> for Ctx {
         } else {
             Principal::Anonymous
         };
-        let peer = parts
-            .extensions
-            .get::<ConnectInfo<SocketAddr>>()
-            .map(|c| c.0.ip());
-        let ip = crate::net::client_ip(peer, &parts.headers, &state.trusted_proxies())
-            .map(|ip| ip.to_string());
-        if let Some(slot) = parts.extensions.get::<crate::access::ActorSlot>() {
-            match &principal {
-                Principal::Anonymous => slot.set("anonymous", None),
-                Principal::Superuser { id, .. } => slot.set("superuser", Some(id.clone())),
-                Principal::User { id, .. } => slot.set("user", Some(id.clone())),
-            }
+        Ok(Ctx(request_ctx(parts, state, principal)))
+    }
+}
+
+/// A request context that ignores credentials: hosted pages act on the
+/// token in their form, never on the caller's session, so a session cookie
+/// (and the CSRF check it needs) plays no part.
+#[derive(Debug, Clone)]
+pub struct AnonCtx(pub RequestCtx);
+
+impl FromRequestParts<AppState> for AnonCtx {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        Ok(AnonCtx(request_ctx(parts, state, Principal::Anonymous)))
+    }
+}
+
+fn request_ctx(parts: &Parts, state: &AppState, principal: Principal) -> RequestCtx {
+    let peer = parts
+        .extensions
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|c| c.0.ip());
+    let ip = crate::net::client_ip(peer, &parts.headers, &state.trusted_proxies())
+        .map(|ip| ip.to_string());
+    if let Some(slot) = parts.extensions.get::<crate::access::ActorSlot>() {
+        match &principal {
+            Principal::Anonymous => slot.set("anonymous", None),
+            Principal::Superuser { id, .. } => slot.set("superuser", Some(id.clone())),
+            Principal::User { id, .. } => slot.set("user", Some(id.clone())),
         }
-        Ok(Ctx(RequestCtx {
-            principal,
-            ip,
-            user_agent: parts
-                .headers
-                .get(header::USER_AGENT)
-                .and_then(|v| v.to_str().ok())
-                .map(str::to_owned),
-            request_id: parts.extensions.get::<RequestId>().map(|r| r.0.to_string()),
-            method: parts.method.as_str().to_owned(),
-            query: query_map(&parts.uri),
-            headers: header_map(&parts.headers),
-            now: app.clock.now(),
-        }))
+    }
+    RequestCtx {
+        principal,
+        ip,
+        user_agent: parts
+            .headers
+            .get(header::USER_AGENT)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned),
+        request_id: parts.extensions.get::<RequestId>().map(|r| r.0.to_string()),
+        method: parts.method.as_str().to_owned(),
+        query: query_map(&parts.uri),
+        headers: header_map(&parts.headers),
+        now: state.app().clock.now(),
     }
 }
 

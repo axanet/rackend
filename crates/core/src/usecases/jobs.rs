@@ -58,11 +58,15 @@ impl App {
         }
     }
 
-    /// Deletes sessions revoked or expired more than 30 days ago.
+    /// Deletes sessions revoked or expired more than 30 days ago, and
+    /// one-time tokens and codes that expired more than a day ago.
     pub async fn job_session_gc(&self) -> Result<u64> {
         let before = format_timestamp(self.clock.now() - Duration::days(30));
+        let tokens_before = format_timestamp(self.clock.now() - Duration::days(1));
         self.store
-            .write(move |tx| tx.sessions_delete_before(&before))
+            .write(
+                move |tx| Ok(tx.sessions_delete_before(&before)? + tx.tokens_gc(&tokens_before)?),
+            )
             .await
     }
 }

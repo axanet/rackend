@@ -119,7 +119,7 @@ impl App {
                     ..
                 },
             ) => {
-                let c = self.auth_collection(key)?;
+                let c = self.passkey_collection(key)?;
                 if c.id.to_string() != *collection_id {
                     return Err(Error::Forbidden(
                         "Sign in as a user of this collection.".into(),
@@ -144,7 +144,7 @@ impl App {
         }
     }
 
-    fn auth_collection(&self, key: &str) -> Result<Arc<crate::domain::Collection>> {
+    fn passkey_collection(&self, key: &str) -> Result<Arc<crate::domain::Collection>> {
         let compiled = self.schema.get();
         let c = compiled.schema.by_id_or_name(key).ok_or(Error::NotFound)?;
         let opts = c.auth().ok_or(Error::NotFound)?;
@@ -250,7 +250,7 @@ impl App {
     /// Starts a discoverable (usernameless) passkey login.
     pub fn passkey_login_start(&self, scope: &PasskeyScope) -> Result<Value> {
         if let PasskeyScope::Collection(key) = scope {
-            self.auth_collection(key)?;
+            self.passkey_collection(key)?;
         }
         let webauthn = self.webauthn()?;
         let (mut options, state) = webauthn
@@ -297,7 +297,7 @@ impl App {
             .await?;
         let collection = match scope {
             PasskeyScope::Superuser => None,
-            PasskeyScope::Collection(key) => Some(self.auth_collection(key)?),
+            PasskeyScope::Collection(key) => Some(self.passkey_collection(key)?),
         };
         let matches = |r: &PasskeyRow| {
             r.user_id == user_uuid.to_string()

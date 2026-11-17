@@ -14,13 +14,18 @@ pub fn defaults() -> Value {
         "security": {
             "cors_origins": [], "app_redirect_uris": [], "trusted_proxies": [],
             "superuser_require_passkey": false,
-            "rate_limits": { "global_ip_per_min": 600, "login_ip_per_min": 20, "login_account_per_15min": 10 }
+            "rate_limits": { "global_ip_per_min": 600, "login_ip_per_min": 20, "login_account_per_15min": 10, "email_ip_per_10min": 5, "email_address_per_hour": 3 }
         },
         "audit": { "retention_days": 365 },
         "logs": { "retention_days": 7, "min_status": 0, "sample_rate": 1.0 },
         "metrics": { "retention_days": 7, "prometheus_public": false, "prometheus_token": null },
         "backups": { "schedule": "0 3 * * *", "keep": 7, "include_storage": true },
         "schema": { "trash_retention_days": 30 },
+        "smtp": {
+            "host": "", "port": 587, "username": "", "password": null,
+            "tls": "starttls", "from_name": "", "from_address": ""
+        },
+        "email_templates": default_templates(),
         "storage": {
             "backend": "fs",
             "s3": {
@@ -38,12 +43,67 @@ pub fn defaults() -> Value {
     })
 }
 
-/// Sections that are not writable yet: their features arrive later (M6).
-const UNAVAILABLE_SECTIONS: &[&str] = &["smtp", "email_templates"];
+/// Sections that are not writable yet.
+const UNAVAILABLE_SECTIONS: &[&str] = &[];
+
+fn template(subject: &str, intro: &str, action: &str, outro: &str) -> Value {
+    let text = format!("Hi,\n\n{intro}\n\n{action}\n\n{outro}\n\n{{{{app_name}}}}");
+    let html = format!(
+        "<div style=\"font-family:system-ui,sans-serif;font-size:15px;line-height:1.6;color:#0b0c0e;max-width:480px\">\
+<p>Hi,</p><p>{intro}</p><p>{action_html}</p><p style=\"color:#52555c\">{outro}</p><p>{{{{app_name}}}}</p></div>",
+        action_html = if action.contains("{{link}}") {
+            "<a href=\"{{link}}\" style=\"display:inline-block;padding:10px 18px;border-radius:999px;background:#0b0c0e;color:#ffffff;text-decoration:none\">Open the link</a><br><span style=\"font-size:13px;color:#52555c\">{{link}}</span>".to_owned()
+        } else {
+            "<span style=\"font:600 24px/1 ui-monospace,monospace;letter-spacing:0.2em\">{{code}}</span>".to_owned()
+        }
+    );
+    json!({ "subject": subject, "text": text, "html": html })
+}
+
+/// Bundled email templates (SPEC §11.4). Variables: `{{app_name}}`,
+/// `{{link}}`, `{{code}}`, `{{email}}`.
+pub fn default_templates() -> Value {
+    json!({
+        "verification": template(
+            "Confirm your email for {{app_name}}",
+            "Please confirm that {{email}} is your email address.",
+            "{{link}}",
+            "The link works for 72 hours. If you did not sign up, ignore this email.",
+        ),
+        "password_reset": template(
+            "Reset your {{app_name}} password",
+            "Someone asked to reset the password for {{email}}.",
+            "{{link}}",
+            "The link works for one hour. If it was not you, ignore this email; your password stays the same.",
+        ),
+        "email_change": template(
+            "Confirm your new email for {{app_name}}",
+            "Please confirm that you want to use {{email}} for your account.",
+            "{{link}}",
+            "The link works for one hour. If it was not you, ignore this email.",
+        ),
+        "otp": template(
+            "Your {{app_name}} sign-in code: {{code}}",
+            "Use this code to sign in as {{email}}:",
+            "{{code}}",
+            "The code works for 10 minutes. If you did not ask for it, ignore this email.",
+        ),
+        "magic_link": template(
+            "Sign in to {{app_name}}",
+            "Use this link to sign in as {{email}}.",
+            "{{link}}",
+            "The link works for 15 minutes and only once. If you did not ask for it, ignore this email.",
+        ),
+    })
+}
 
 /// Settings that are secrets: stored encrypted (`enc:v1:`), shown as
 /// [`MASK`], never in audit diffs (SPEC §15, §17.4).
-pub const SECRET_PATHS: &[&str] = &["storage.s3.secret_access_key", "metrics.prometheus_token"];
+pub const SECRET_PATHS: &[&str] = &[
+    "storage.s3.secret_access_key",
+    "metrics.prometheus_token",
+    "smtp.password",
+];
 
 /// How a stored secret is shown. Sending it back unchanged keeps the secret.
 pub const MASK: &str = "\u{2022}\u{2022}\u{2022}\u{2022}";
@@ -318,6 +378,21 @@ fn merge_checked(
 fn check_value(path: &str, v: &Value) -> Result<(), FieldError> {
     let (section, key) = path.split_once('.').unwrap_or((path, ""));
     match (section, key) {
+        ("smtp", "tls") if !matches!(v.as_str(), Some("starttls" | "tls" | "none")) => Err(
+            FieldError::new("invalid_option", "One of starttls, tls, none."),
+        ),
+        ("smtp", "port") if v.as_u64().is_some_and(|p| p == 0 || p > 65535) => {
+            Err(FieldError::new("out_of_range", "Between 1 and 65535."))
+        }
+        ("smtp", "from_address")
+            if v.as_str()
+                .is_some_and(|a| !a.is_empty() && !a.contains('@')) =>
+        {
+            Err(FieldError::new(
+                "invalid_email",
+                "Must be an email address.",
+            ))
+        }
         ("backups", "schedule")
             if v.as_str().is_some_and(|s| {
                 !s.trim().is_empty() && crate::domain::cron::Cron::parse(s).is_none()
@@ -408,12 +483,12 @@ mod tests {
             .unwrap();
         assert_eq!(ok[0].1["public_url"], "https://x.example.com/");
         let e = s
-            .validate_patch(&json!({"app": {"public_url": "ftp://x", "nope": 1}, "smtp": {}, "limits": {"rule_timeout_ms": "x"}}))
+            .validate_patch(&json!({"app": {"public_url": "ftp://x", "nope": 1}, "nope_section": {}, "limits": {"rule_timeout_ms": "x"}}))
             .unwrap_err();
         for k in [
             "app.public_url",
             "app.nope",
-            "smtp",
+            "nope_section",
             "limits.rule_timeout_ms",
         ] {
             assert!(e.0.contains_key(k), "{k}: {e:?}");

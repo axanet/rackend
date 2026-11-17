@@ -11,4 +11,10 @@ workspace = true
 
 [dependencies]
 rackend-core = { workspace = true }
-
+openidconnect = { workspace = true }
+reqwest = { workspace = true, features = ["form"] }
+http = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
+tracing = { workspace = true }

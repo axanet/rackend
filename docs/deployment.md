@@ -97,6 +97,30 @@ Open http://localhost:8080/_/setup?token=… to create the first superuser.
 
 The setup screen also asks for the public URL users reach the instance at.
 
+## Email
+
+Verification, password reset, email change, one-time codes and magic links need SMTP and a public URL (the links point at it). Set them in Settings → Email, or with `PATCH /api/settings`:
+
+```json
+{ "smtp": { "host": "smtp.example.com", "port": 587, "tls": "starttls", "username": "rackend", "password": "…", "from_name": "Acme", "from_address": "noreply@example.com" } }
+```
+
+- `tls`: `starttls` (port 587), `tls` (port 465) or `none` (a relay on the same host only). The password is stored encrypted.
+- **Send test** in the admin UI (or `POST /api/settings/test-smtp {"to": "you@example.com"}`) checks the settings without saving them.
+- Templates for every email are editable in the same place. `{{app_name}}`, `{{link}}`, `{{code}}` and `{{email}}` are replaced; values are escaped in the HTML body.
+- Links in emails open pages served by rackend (`/auth/verify`, `/auth/reset`, `/auth/email-change`). If a reverse proxy only forwards `/api`, forward `/auth` too.
+
+## Sign-in providers
+
+Settings → Sign-in providers adds OpenID Connect providers (presets for Google, Microsoft Entra ID, Apple, GitLab, Authentik, Pocket ID, Keycloak, Zitadel, or any issuer) and GitHub.
+
+1. Set the public URL first.
+2. Register the redirect URI the dialog shows at the provider: `{public_url}/api/collections/{collection}/providers/{name}/callback`.
+3. Add your app's return URL to **App redirect URIs** (exact match). Apps start a sign-in at `GET /api/collections/{c}/providers/{name}/start?redirect_uri=<that URL>`, receive `#code=…` (or `#error=…`) and exchange the code at `POST /api/collections/{c}/auth-with-exchange-code` within 60 seconds.
+4. Leave **Link to existing accounts by verified email** off unless the provider verifies every address it reports.
+
+Signed-in users add a provider to their account with `&link=true` on the start URL.
+
 ## Monitoring
 
 - **Dashboard.** The admin UI shows requests, errors, latency, the busiest routes, recent server errors, database and file sizes, realtime connections, and CPU, memory and disk. Inside a container with memory or CPU limits it shows the container's limits, not the host's. It warns when the data directory's disk has less than 10% free.
