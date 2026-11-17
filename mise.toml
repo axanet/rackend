@@ -1,0 +1,53 @@
+[tools]
+rust = { version = "1.99.1", components = "clippy,rustfmt" }
+bun = "1.4.3"
+"cargo:cargo-nextest" = "0.9.152"
+"cargo:cargo-deny" = "0.21.0"
+
+[env]
+RACKEND_DATA_DIR = "{{config_root}}/.data"
+RACKEND_DEV = "true"
+
+[tasks.dev]
+description = "Run server in dev mode (UI served from bun dev server via proxy)"
+run = "cargo run -p rackend -- serve"
+
+[tasks."ui:dev"]
+dir = "admin-ui"
+run = "bun install && bun --bun run dev"
+
+[tasks."ui:build"]
+dir = "admin-ui"
+run = "bun install --frozen-lockfile && bun --bun run build"
+
+[tasks.build]
+depends = ["ui:build"]
+run = "cargo build --release -p rackend"
+
+[tasks.test]
+run = "cargo nextest run --workspace"
+
+[tasks."test:upgrade"]
+run = "cargo nextest run -p rackend-store-sqlite --test upgrade_paths"
+
+[tasks."test:s3"]
+description = "S3 contract tests against MinIO and Garage (requires Docker)"
+run = "cargo nextest run -p rackend-blob-s3 --features contract-tests"
+
+[tasks.lint]
+run = [
+  "cargo fmt --all --check",
+  "cargo clippy --workspace --all-targets -- -D warnings",
+  "cargo deny check",
+  "scripts/check-migrations-immutable.sh",
+]
+
+[tasks.fmt]
+run = "cargo fmt --all"
+
+[tasks."docker:build"]
+run = "docker build -t rackend:dev ."
+
+[tasks."fixture:generate"]
+description = "Generate the upgrade fixture for a release: mise run fixture:generate <version>"
+run = "cargo run -p rackend-store-sqlite --example generate_fixture -- tests/upgrade/fixtures"

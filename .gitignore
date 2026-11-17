@@ -1,0 +1,8 @@
+/target
+/.data
+/admin-ui/node_modules
+/admin-ui/build
+/admin-ui/.svelte-kit
+.DS_Store
+*.db-wal
+*.db-shm

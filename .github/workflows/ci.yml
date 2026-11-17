@@ -1,0 +1,57 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with: { fetch-depth: 0 } # tags, for the migration immutability check
+      - uses: jdx/mise-action@v3
+      - uses: Swatinem/rust-cache@v2
+      - run: scripts/ci.sh lint
+
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: jdx/mise-action@v3
+      - uses: Swatinem/rust-cache@v2
+      - run: scripts/ci.sh test
+      - run: scripts/ci.sh upgrade
+
+  docker:
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          load: true
+          tags: rackend:ci
+          build-args: RACKEND_GIT_COMMIT=${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
+      - name: image size (compressed budget 40 MB, SPEC §2)
+        run: docker save rackend:ci | gzip | wc -c | awk '{ printf "%.1f MB\n", $1/1048576; if ($1 > 40*1048576) exit 1 }'
+      - run: scripts/ci.sh docker-smoke rackend:ci

@@ -1,0 +1,73 @@
+# Deploying rackend
+
+## Quick start
+
+```sh
+docker run -d --name rackend -v rackend_data:/data -p 8080:8080 ghcr.io/axanet/rackend:0.1
+```
+
+No environment variables are required. Everything except the few bootstrap variables below is configured at runtime in the admin UI at `/_/`.
+
+A reference `docker-compose.yml` is in the repository root. Pin the minor version (`x.y`) so upgrades are deliberate.
+
+## Storage
+
+rackend keeps everything in one data directory (`/data` in the container):
+
+| Path | Contents |
+|---|---|
+| `rackend.lock` | Exclusive lock, held while the instance runs |
+| `data.db` | Main SQLite database (+ `-wal`, `-shm`) |
+| `logs.db` | Request logs and metrics; losing it is harmless |
+| `storage/` | Uploaded files (local filesystem backend) |
+| `backups/` | Pre-upgrade, manual and scheduled backups |
+| `tmp/` | Upload staging, wiped at startup |
+
+> [!WARNING]
+> **Do not put the data directory on NFS, SMB/CIFS or another network filesystem.** SQLite's locking is unreliable there and the database can be corrupted. rackend logs a warning at startup when it detects one. Use a local disk or a block volume.
+>
+> **Do not run two instances on the same data directory.** The second one refuses to start (exit code 75).
+
+The container runs as UID/GID `10001:10001`. Bind mounts must be writable by that user.
+
+## Bootstrap environment variables
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `RACKEND_DATA_DIR` | `/data` (Docker) / `./rackend_data` | Data directory |
+| `RACKEND_HTTP_ADDR` | `0.0.0.0:8080` | Listen address |
+| `RACKEND_DEV` | `false` | Dev mode: pretty logs, permissive localhost handling. Never in production. |
+| `RACKEND_LOG_LEVEL` | `info` | `tracing` filter, e.g. `info,rackend_store_sqlite=debug` |
+| `RACKEND_LOG_FORMAT` | `json` (`pretty` in dev) | `json` or `pretty` |
+| `RACKEND_SQLITE_SYNCHRONOUS` | `FULL` | `NORMAL` trades durability of the last commits on power loss for write speed (never corruption) |
+
+`RACKEND_PUBLIC_URL`, `RACKEND_ENCRYPTION_KEY`, `RACKEND_TRUSTED_PROXIES`, `RACKEND_OTLP_ENDPOINT` and `RACKEND_SUPERUSER_EMAIL`/`_PASSWORD` are reserved for upcoming releases; this version logs a warning if they are set.
+
+## Upgrades
+
+Upgrading never loses data. On start, before any schema change, rackend:
+
+1. refuses to run against a database written by a newer version (exit 78) — downgrades are not supported;
+2. checks there is enough free space (2 × database size + 100 MB, else exit 73);
+3. writes a verified snapshot to `backups/pre-upgrade-<from>-to-<to>-<timestamp>.db` (exit 74 if verification fails);
+4. applies each migration in its own transaction (exit 70 on failure, data unchanged) and checks integrity afterwards.
+
+The last 5 pre-upgrade backups are kept. To go back to an older version, stop rackend, replace `data.db` with the matching pre-upgrade backup, remove `data.db-wal` and `data.db-shm`, and start the older version.
+
+`rackend migrate status` shows applied and pending migrations without changing anything; it is safe to run next to a live instance.
+
+## Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Normal shutdown |
+| 1 | Invalid configuration or other startup failure |
+| 70 | Migration or integrity failure |
+| 73 | Not enough disk space for a safe upgrade |
+| 74 | Pre-upgrade backup verification failed |
+| 75 | Data directory locked by another instance |
+| 78 | Database schema newer than this binary, or a migration checksum mismatch |
+
+## Shutdown
+
+On `SIGTERM`/`SIGINT` rackend stops accepting connections, waits up to 10 s for in-flight requests, finishes queued database writes, checkpoints the databases and exits 0. Give the container at least 30 s (`stop_grace_period`).

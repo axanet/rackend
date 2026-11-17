@@ -1,0 +1,69 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+default-members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.0-alpha"
+edition = "2024"
+rust-version = "1.99"
+repository = "https://github.com/axanet/rackend"
+publish = false
+# License: TBD (SPEC §21) — decide before the first public release.
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+dbg_macro = "deny"
+todo = "deny"
+
+[workspace.dependencies]
+# workspace crates
+rackend-core = { path = "crates/core" }
+rackend-store-sqlite = { path = "crates/store-sqlite" }
+rackend-blob-fs = { path = "crates/blob-fs" }
+rackend-blob-s3 = { path = "crates/blob-s3" }
+rackend-imaging = { path = "crates/imaging" }
+rackend-mail-smtp = { path = "crates/mail-smtp" }
+rackend-idp-client = { path = "crates/idp-client" }
+rackend-host-metrics = { path = "crates/host-metrics" }
+rackend-http = { path = "crates/http" }
+
+# approved dependencies (SPEC §3.3)
+tokio = { version = "1.54", default-features = false }
+axum = { version = "0.8.9", default-features = false }
+tower = { version = "0.5.3", default-features = false }
+tower-http = { version = "0.7.1", default-features = false }
+rusqlite = { version = "0.43", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+thiserror = "2.0.21"
+anyhow = "1.0.104"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", default-features = false }
+uuid = { version = "1.29", features = ["v7", "serde"] }
+time = { version = "0.3.55", features = ["formatting", "parsing", "macros"] }
+sha2 = "0.11.1"
+base64 = "0.23"
+fs4 = { version = "1.1", features = ["sync"] }
+clap = { version = "4.6.8", features = ["derive", "env"] }
+mimalloc = { version = "0.1.52", default-features = false }
+rust-embed = { version = "8.14", features = ["interpolate-folder-path"] }
+# ADR 0002: safe statfs for network-filesystem detection
+rustix = { version = "1.1.6", default-features = false, features = ["fs", "std"] }
+
+# dev-dependencies
+tempfile = "3.27"
+reqwest = { version = "0.13.5", default-features = false, features = ["json"] }
+insta = "1.49"
+proptest = "1.12"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+panic = "unwind"

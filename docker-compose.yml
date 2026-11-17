@@ -1,0 +1,10 @@
+# Reference deployment (SPEC §18.3). Pin the minor version (x.y) in production.
+services:
+  rackend:
+    image: ghcr.io/axanet/rackend:0.1
+    restart: unless-stopped
+    ports: ["8080:8080"]
+    volumes: ["rackend_data:/data"]
+    stop_grace_period: 30s
+volumes:
+  rackend_data:

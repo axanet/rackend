@@ -1,0 +1,11 @@
+{
+  "binary_version": "0.0.0-synthetic",
+  "schema_version": 1,
+  "row_counts": {
+    "_settings": 4
+  },
+  "record_hashes": {
+    "_settings": "a1adf41d903f2ae7eeb9426d1192a04d9ed4ec77dab72c3915176dc56f4f7b67"
+  },
+  "intended_transformations": {}
+}

@@ -1,0 +1,17 @@
+[package]
+name = "rackend-blob-s3"
+description = "BlobStore port on S3-compatible object storage"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+rackend-core = { workspace = true }
+
+[features]
+# S3 contract tests against MinIO and Garage (requires Docker), SPEC §12.2.
+contract-tests = []

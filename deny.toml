@@ -1,0 +1,40 @@
+# cargo-deny: advisories, licenses, bans and sources (SPEC §17.1).
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[licenses]
+version = 2
+confidence-threshold = 0.9
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-3-Clause",
+  "Zlib",
+  "Unicode-3.0",
+  "MPL-2.0",
+]
+
+[licenses.private]
+# Workspace crates are not published; their license is still TBD (SPEC §21).
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Workspace path dependencies are not wildcards in practice (publish = false).
+allow-wildcard-paths = true
+# Approved dependency list: SPEC §3.3. New direct dependencies need an ADR.
+deny = [
+  { name = "openssl", reason = "use rustls / pure-Rust crypto; the image is FROM scratch" },
+  { name = "openssl-sys", reason = "use rustls / pure-Rust crypto; the image is FROM scratch" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
