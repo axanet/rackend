@@ -97,6 +97,6 @@ impl App {
                 .await?;
             tracing::info!(alg = alg.as_str(), kid = %key.kid, "generated a signing key");
         }
-        Ok(())
+        self.reload_keys().await
     }
 }

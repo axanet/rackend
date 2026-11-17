@@ -74,6 +74,16 @@ pub struct ProviderStart {
 pub enum CallbackOutcome {
     /// Redirect to the app (`#code=` or `#error=`).
     Redirect(String),
+    /// Signed in for the OIDC provider's hosted login: set the browser
+    /// session cookie and continue the authorization request.
+    Hosted {
+        /// Value of the `rk_sso` cookie.
+        sso_token: String,
+        /// Its lifetime in seconds.
+        max_age: i64,
+        /// The sealed authorization request, marked as signed in.
+        ar: String,
+    },
     /// Show an error page (no app to return to).
     Error {
         /// Problem code (`invalid_state`, `account_not_found`, …).
@@ -105,6 +115,9 @@ struct FlowState {
     collection: String,
     redirect_uri: String,
     link_user: Option<String>,
+    /// A sealed OIDC authorization request to continue after sign-in.
+    #[serde(default)]
+    continue_ar: Option<String>,
     exp: i64,
 }
 
@@ -506,17 +519,38 @@ impl App {
         name: &str,
         redirect_uri: Option<&str>,
         link: bool,
+        continue_ar: Option<&str>,
     ) -> Result<ProviderStart> {
         let c = self.auth_collection(key)?;
         let p = self.provider_by_name(&c, name)?;
+        // From the hosted login page: continue the OIDC request afterwards.
+        let continue_ar = match continue_ar {
+            Some(ar) => {
+                let req = self.unseal(ar, ctx.now).ok_or_else(|| {
+                    Error::field(
+                        "continue",
+                        FieldError::new("invalid", "The sign-in request expired. Start again."),
+                    )
+                })?;
+                let client_collection = self.request_client(&req).await.map(|i| i.collection);
+                if client_collection.as_deref() != Some(c.name.as_str()) {
+                    return Err(Error::field(
+                        "continue",
+                        FieldError::new("invalid", "Another collection."),
+                    ));
+                }
+                Some(ar.to_owned())
+            }
+            None => None,
+        };
         let redirect_uri = redirect_uri.unwrap_or_default();
-        if redirect_uri.is_empty() {
+        if redirect_uri.is_empty() && continue_ar.is_none() {
             return Err(Error::field(
                 "redirect_uri",
                 FieldError::new("required", "Pass the app URI to return to."),
             ));
         }
-        if !self.redirect_allowed(redirect_uri) {
+        if continue_ar.is_none() && !self.redirect_allowed(redirect_uri) {
             return Err(Error::field(
                 "redirect_uri",
                 FieldError::new(
@@ -553,6 +587,7 @@ impl App {
             collection: c.id.to_string(),
             redirect_uri: redirect_uri.to_owned(),
             link_user,
+            continue_ar,
             exp: (ctx.now + STATE_TTL).unix_timestamp(),
         };
         let cookie = self.secrets.encrypt_str(
@@ -590,10 +625,35 @@ impl App {
         };
         let back =
             |frag: String| CallbackOutcome::Redirect(format!("{}#{frag}", flow.redirect_uri));
-        match self
+        let result = self
             .finish_provider_login(ctx, key, name, &params, &flow)
-            .await
-        {
+            .await;
+        if let Some(ar) = &flow.continue_ar {
+            let to_login =
+                |code: &str| CallbackOutcome::Redirect(format!("/auth/login?ar={ar}&error={code}"));
+            let code = match result {
+                Ok(code) => code,
+                Err(Failure(code, message)) => {
+                    tracing::info!(code, %message, provider = name, "provider sign-in failed");
+                    return to_login(code);
+                }
+            };
+            let Some(mut req) = self.unseal(ar, ctx.now) else {
+                return to_login("invalid_state");
+            };
+            return match self.auth_with_exchange_code(ctx, key, &code).await {
+                Ok(t) => {
+                    req.logged_in = true;
+                    CallbackOutcome::Hosted {
+                        sso_token: t.refresh_token,
+                        max_age: t.refresh_expires_in,
+                        ar: self.seal(&req),
+                    }
+                }
+                Err(_) => to_login("server_error"),
+            };
+        }
+        match result {
             Ok(code) => back(format!("code={code}")),
             Err(Failure(code, message)) => {
                 tracing::info!(code, %message, provider = name, "provider sign-in failed");

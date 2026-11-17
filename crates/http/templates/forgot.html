@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ t.get("forgot.title") }}</h1>
+{% if let Some(m) = sent %}<p class="ok" role="status">{{ m }}</p>{% else %}<p>{{ t.get("forgot.hint") }}</p>{% endif %}
+{% if let Some(e) = error %}<p class="err" role="alert">{{ e }}</p>{% endif %}
+{% if sent.is_none() %}
+<form method="post" action="/auth/forgot">
+  <input type="hidden" name="ar" value="{{ ar }}">
+  <label>{{ t.get("login.email") }}<input type="email" name="email" autocomplete="email" required autofocus></label>
+  <button type="submit">{{ t.get("forgot.submit") }}</button>
+</form>
+{% endif %}
+<p class="links"><a href="/auth/login?ar={{ ar|urlencode }}">{{ t.get("forgot.back") }}</a></p>
+{% endblock %}

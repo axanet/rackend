@@ -121,6 +121,12 @@ Settings → Sign-in providers adds OpenID Connect providers (presets for Google
 
 Signed-in users add a provider to their account with `&link=true` on the start URL.
 
+## Sign in to your apps (OIDC)
+
+rackend is an OpenID Connect provider for your apps; see [Sign in to your apps](guide/sign-in-for-apps.md). Behind a reverse proxy, forward `/.well-known/`, `/oauth2/` and `/auth/` as well as `/api/`. The issuer is the public URL, so set it before apps sign in, and do not change it afterwards: tokens and app configurations depend on it.
+
+Browsers on other origins need CORS for `/api`: list your apps' origins in `security.cors_origins`. The OIDC endpoints allow any origin.
+
 ## API document
 
 `GET /api/openapi.json` describes the API of your collections for client generators (see [Generating a client](guide/clients.md)). It is for superusers until you set `api.openapi_public: true`; the public document leaves out operations only superusers may call. `rackend openapi export` prints it from the command line, also while the server runs.

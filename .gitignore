@@ -9,3 +9,6 @@
 /fuzz/target
 /fuzz/corpus
 /fuzz/artifacts
+/scripts/conformance/.run
+/examples/*/node_modules
+/examples/*/dist

@@ -860,6 +860,7 @@ fn delete_record(
         )?;
         tx.passkeys_delete_for(&r.id.to_string())?;
         tx.identities_delete_for(&r.id.to_string())?;
+        tx.oauth_consents_delete_for(&r.id.to_string())?;
     }
     if !c.options.audit_records {
         return Ok(None);

@@ -1,0 +1,13 @@
+{
+	"name": "rackend-oidc-spa",
+	"private": true,
+	"license": "Apache-2.0",
+	"type": "module",
+	"scripts": {
+		"build": "bun build src/main.ts --outdir dist --target browser --minify && cp index.html dist/",
+		"dev": "bun run build && bun serve.ts"
+	},
+	"dependencies": {
+		"oidc-client-ts": "3.5.0"
+	}
+}

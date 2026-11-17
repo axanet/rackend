@@ -1,7 +1,9 @@
 //! Authentication (SPEC §11). M1 contains the superuser slice (ADR 0008).
 
 pub mod broker;
+pub mod jwt;
 pub mod keys;
+pub mod oauth;
 pub mod password;
 pub mod session;
 pub mod token;

@@ -6,9 +6,11 @@
 
 	let { children }: LayoutProps = $props();
 	const tabs = [
+		['/settings/general', 'General'],
 		['/settings', 'File storage'],
 		['/settings/email', 'Email'],
 		['/settings/providers', 'Sign-in providers'],
+		['/settings/apps', 'Apps'],
 		['/settings/backups', 'Backups']
 	] as const;
 </script>

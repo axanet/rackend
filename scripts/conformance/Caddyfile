@@ -1,0 +1,16 @@
+{
+	local_certs
+	skip_install_trust
+}
+
+https://conformance.test:8443 {
+	tls internal
+	reverse_proxy suite:8080 {
+		header_up X-Forwarded-Proto https
+	}
+}
+
+https://rackend.test {
+	tls internal
+	reverse_proxy rackend:8080
+}

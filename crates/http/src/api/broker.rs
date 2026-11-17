@@ -22,7 +22,7 @@ use crate::ratelimit::limited_error;
 type Q = Query<std::collections::BTreeMap<String, String>>;
 
 /// The email limits (SPEC §11.10): per IP and per target address.
-fn email_limit(state: &AppState, ctx: &RequestCtx, address: &str) -> ApiResult<()> {
+pub fn email_limit(state: &AppState, ctx: &RequestCtx, address: &str) -> ApiResult<()> {
     let ip = ctx.ip.as_deref().and_then(|i| i.parse::<IpAddr>().ok());
     state
         .limits()
@@ -226,6 +226,7 @@ pub async fn provider_start(
             &name,
             q.get("redirect_uri").map(String::as_str),
             link,
+            q.get("continue").map(String::as_str),
         )
         .await?;
     let secure = started.secure || state.secure_cookies();
@@ -267,6 +268,32 @@ pub async fn provider_callback(
             let mut r = StatusCode::SEE_OTHER.into_response();
             if let Ok(v) = HeaderValue::from_str(&url) {
                 r.headers_mut().insert(LOCATION, v);
+            }
+            r
+        }
+        CallbackOutcome::Hosted {
+            sso_token,
+            max_age,
+            ar,
+        } => {
+            let mut r = StatusCode::SEE_OTHER.into_response();
+            let to = format!(
+                "/oauth2/authorize?ar={}",
+                rackend_core::usecases::oidc::urlencode(&ar)
+            );
+            if let Ok(v) = HeaderValue::from_str(&to) {
+                r.headers_mut().insert(LOCATION, v);
+            }
+            let sec = if state.secure_cookies() {
+                "; Secure"
+            } else {
+                ""
+            };
+            if let Ok(v) = HeaderValue::from_str(&format!(
+                "{}={sso_token}; Path=/; HttpOnly; SameSite=Lax; Max-Age={max_age}{sec}",
+                rackend_core::usecases::oidc::SSO_COOKIE
+            )) {
+                r.headers_mut().append(SET_COOKIE, v);
             }
             r
         }

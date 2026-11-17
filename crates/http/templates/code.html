@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ t.get("otp.title") }}</h1>
+{% if let Some(e) = error %}<p class="err" role="alert">{{ e }}</p>{% endif %}
+{% if otp_id.is_empty() %}
+<form method="post" action="/auth/login/code">
+  <input type="hidden" name="ar" value="{{ ar }}">
+  <label>{{ t.get("login.email") }}<input type="email" name="email" value="{{ email }}" autocomplete="email" required autofocus></label>
+  <button type="submit">{{ t.get("login.code") }}</button>
+</form>
+{% else %}
+<p>{{ sent }}</p>
+<form method="post" action="/auth/login/code/verify">
+  <input type="hidden" name="ar" value="{{ ar }}">
+  <input type="hidden" name="otp_id" value="{{ otp_id }}">
+  <input type="hidden" name="email" value="{{ email }}">
+  <label>{{ t.get("otp.code") }}<input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" maxlength="7" required autofocus></label>
+  <button type="submit">{{ t.get("otp.submit") }}</button>
+</form>
+{% endif %}
+<p class="links"><a href="/auth/login?ar={{ ar|urlencode }}">{{ t.get("otp.back") }}</a></p>
+{% endblock %}

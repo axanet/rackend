@@ -13,6 +13,7 @@ mod flows;
 mod keycloak;
 mod mock_idp;
 mod observe;
+mod oidc;
 mod openapi;
 mod realtime;
 mod rule_matrix;

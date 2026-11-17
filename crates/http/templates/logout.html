@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ t.get("logout.title") }}</h1>
+<p>{{ question }}</p>
+<form method="post" action="/oauth2/logout">
+  {% for f in fields %}<input type="hidden" name="{{ f.0 }}" value="{{ f.1 }}">{% endfor %}
+  <input type="hidden" name="confirm" value="yes">
+  <button type="submit">{{ t.get("logout.submit") }}</button>
+</form>
+{% endblock %}

@@ -137,7 +137,7 @@ pub async fn run(cfg: Config, version: &'static str) -> Result<(), Fatal> {
     }
 
     // Step 9: background jobs. Signing keys first: RSA generation is slow,
-    // and nothing in this version needs the keys during the first requests.
+    // and OIDC endpoints answer 503 until the keys exist.
     let keys = {
         let app = Arc::clone(&app);
         tokio::spawn(async move {
@@ -200,6 +200,11 @@ pub async fn run(cfg: Config, version: &'static str) -> Result<(), Fatal> {
                 }
                 if let Err(e) = app.job_session_gc().await {
                     tracing::warn!(error = %e, "session cleanup failed");
+                }
+                match app.job_key_rotation().await {
+                    Ok(false) => {}
+                    Ok(true) => tracing::info!("rotated OIDC signing keys"),
+                    Err(e) => tracing::warn!(error = %e, "signing key rotation failed"),
                 }
                 match app.job_logs_retention().await {
                     Ok((0, 0)) => {}

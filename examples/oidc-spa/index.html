@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>rackend OIDC example</title>
+<style>
+  :root { color-scheme: light dark; font: 16px/1.5 system-ui, sans-serif; }
+  body { max-width: 640px; margin: 48px auto; padding: 0 16px; }
+  button { height: 40px; padding: 0 16px; border-radius: 999px; border: 1px solid currentColor; background: none; color: inherit; font: inherit; cursor: pointer; }
+  pre { padding: 12px; border-radius: 8px; background: color-mix(in srgb, currentColor 8%, transparent); overflow-x: auto; font-size: 13px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<h1>rackend OIDC example</h1>
+<p>Signs in with rackend's OpenID provider using <code>oidc-client-ts</code>, then calls rackend's API with the access token.</p>
+<p>Issuer: <code id="authority"></code></p>
+<div class="row">
+  <button id="login">Sign in</button>
+  <button id="api" hidden>Call the API</button>
+  <button id="logout" hidden>Sign out</button>
+</div>
+<h2>Status</h2>
+<pre id="status">Signed out.</pre>
+<script type="module" src="./main.js"></script>
+</body>
+</html>

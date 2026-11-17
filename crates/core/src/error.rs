@@ -25,6 +25,8 @@ pub enum UnavailableReason {
     Storage,
     /// An external identity provider cannot be reached (SPEC §11.7).
     IdentityProvider,
+    /// The instance is still starting (signing keys are being generated).
+    Starting,
 }
 
 impl fmt::Display for UnavailableReason {
@@ -35,6 +37,7 @@ impl fmt::Display for UnavailableReason {
             Self::Migrating => "the server is applying migrations",
             Self::Storage => "the file storage is unavailable",
             Self::IdentityProvider => "the identity provider is unavailable",
+            Self::Starting => "the server is starting",
         })
     }
 }

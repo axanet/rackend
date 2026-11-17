@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{{ title }} · {{ chrome.app_name }}</title>
+<link rel="stylesheet" href="/auth/page.css">
+<link rel="stylesheet" href="/auth/theme.css">
+</head>
+<body>
+<main>
+  <div class="mark">
+    {% if let Some(logo) = chrome.logo %}<img class="logo" src="{{ logo }}" alt="">{% else %}{{ chrome.mark|safe }}{% endif %}
+    <span>{{ chrome.app_name }}</span>
+  </div>
+  {% block content %}{% endblock %}
+</main>
+{% block scripts %}{% endblock %}
+</body>
+</html>

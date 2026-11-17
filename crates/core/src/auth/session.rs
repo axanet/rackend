@@ -58,4 +58,6 @@ pub struct SessionRow {
     pub ip: Option<String>,
     /// User agent at creation.
     pub user_agent: Option<String>,
+    /// Scopes granted to an OIDC client session.
+    pub scopes: Option<String>,
 }

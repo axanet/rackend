@@ -1327,6 +1327,14 @@ pub fn generate(input: &DocInput<'_>) -> Value {
     });
     if let Some(u) = &input.public_url {
         doc["servers"] = json!([{ "url": u }]);
+        // rackend's own OpenID provider (SPEC §11.8).
+        doc["components"]["securitySchemes"]["oidc"] = json!({
+            "type": "openIdConnect",
+            "openIdConnectUrl": format!("{u}/.well-known/openid-configuration"),
+            "description": "Access tokens from rackend's OpenID provider (Settings, Apps).",
+        });
+        doc["security"] =
+            json!([{ "bearerAuth": [] }, { "cookieAuth": [] }, { "oidc": ["openid"] }, {}]);
     }
     if input.version == Version::V30 {
         to_30(&mut doc);

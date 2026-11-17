@@ -26,11 +26,22 @@ const FORM_CSS: &str = "form{display:grid;gap:14px;margin-top:8px}\
 label{display:grid;gap:6px;font:500 14px/1.3 var(--font-sans);color:var(--fg)}\
 input{width:100%;min-height:44px;padding:8px 12px;border:1px solid var(--border-strong);border-radius:6px;\
 background:var(--bg-elev);color:var(--fg);font:400 16px/1.4 var(--font-sans)}\
-input:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}\
-button{height:44px;padding:0 18px;border-radius:999px;border:1px solid var(--fg);background:var(--fg);\
-color:var(--bg);font:500 15px/1 var(--font-sans);cursor:pointer}\
-button:hover{background:color-mix(in srgb,var(--fg) 85%,var(--bg))}\
+input:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}\
 input[aria-invalid=true]{border-color:var(--danger)}\
+button,a.button{display:inline-flex;align-items:center;justify-content:center;height:44px;padding:0 18px;\
+border-radius:999px;border:1px solid var(--brand,var(--fg));background:var(--brand,var(--fg));\
+color:var(--brand-fg,var(--bg));font:500 15px/1 var(--font-sans);text-decoration:none;cursor:pointer}\
+button:hover,a.button:hover{background:color-mix(in srgb,var(--brand,var(--fg)) 85%,var(--bg))}\
+button.secondary,a.button.secondary{background:transparent;color:var(--fg);border-color:var(--border-strong)}\
+button.secondary:hover,a.button.secondary:hover{background:var(--surface)}\
+button[disabled]{opacity:.5;cursor:not-allowed}\
+.alt{display:grid;gap:10px}.alt form{margin:0}.alt button,.alt a.button{width:100%}\
+.or{display:flex;align-items:center;gap:12px;margin:6px 0;font-size:13px;color:var(--fg-subtle)}\
+.or::before,.or::after{content:\"\";flex:1;border-top:1px solid var(--border)}\
+.links{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;font-size:14px}\
+.scopes{margin:0;padding-left:20px;display:grid;gap:4px;color:var(--fg)}\
+.row{display:flex;gap:10px;justify-content:flex-end}.row button{flex:1}\
+.mark .logo{max-height:28px;max-width:160px}\
 .err{color:var(--danger)}.ok{color:var(--accent)}.hint{font-size:14px;color:var(--fg-subtle)}";
 
 /// Marks a finished HTML page: the problem mapper keeps it as it is, even

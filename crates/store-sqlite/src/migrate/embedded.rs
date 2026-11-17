@@ -40,6 +40,13 @@ pub static DATA_MIGRATIONS: &[Migration] = &[
         rust: None,
         foreign_keys_off: false,
     },
+    Migration {
+        id: 6,
+        name: "oidc_provider",
+        sql: include_str!("../../migrations/data/0006_oidc_provider.sql"),
+        rust: None,
+        foreign_keys_off: false,
+    },
 ];
 
 /// Migrations of `logs.db` (its own track, SPEC §7.3).

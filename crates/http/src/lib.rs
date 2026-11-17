@@ -10,6 +10,7 @@ mod health;
 pub mod html;
 pub mod middleware;
 pub mod net;
+pub mod oidc;
 pub mod pages;
 pub mod problem;
 pub mod ratelimit;
@@ -503,6 +504,51 @@ pub fn routes() -> Vec<RouteSpec> {
         r(Method::POST, "/auth/reset", "/auth/reset"),
         r(Method::GET, "/auth/email-change", "/auth/email-change"),
         r(Method::POST, "/auth/email-change", "/auth/email-change"),
+        r(
+            Method::GET,
+            "/.well-known/openid-configuration",
+            "/.well-known/openid-configuration",
+        ),
+        r(Method::GET, "/oauth2/jwks", "/oauth2/jwks"),
+        r(Method::GET, "/oauth2/authorize", "/oauth2/authorize"),
+        r(Method::POST, "/oauth2/authorize", "/oauth2/authorize"),
+        r(Method::POST, "/oauth2/token", "/oauth2/token"),
+        r(Method::GET, "/oauth2/userinfo", "/oauth2/userinfo"),
+        r(Method::POST, "/oauth2/userinfo", "/oauth2/userinfo"),
+        r(Method::POST, "/oauth2/revoke", "/oauth2/revoke"),
+        r(Method::GET, "/oauth2/logout", "/oauth2/logout"),
+        r(Method::POST, "/oauth2/logout", "/oauth2/logout"),
+        r(Method::GET, "/auth/login", "/auth/login"),
+        r(Method::POST, "/auth/login", "/auth/login"),
+        r(Method::POST, "/auth/login/code", "/auth/login/code"),
+        r(
+            Method::POST,
+            "/auth/login/code/verify",
+            "/auth/login/code/verify",
+        ),
+        r(Method::POST, "/auth/login/passkey", "/auth/login/passkey"),
+        r(Method::GET, "/auth/signup", "/auth/signup"),
+        r(Method::POST, "/auth/signup", "/auth/signup"),
+        r(Method::GET, "/auth/forgot", "/auth/forgot"),
+        r(Method::POST, "/auth/forgot", "/auth/forgot"),
+        r(Method::GET, "/auth/consent", "/auth/consent"),
+        r(Method::POST, "/auth/consent", "/auth/consent"),
+        r(Method::GET, "/auth/page.js", "/auth/page.js"),
+        r(Method::GET, "/auth/theme.css", "/auth/theme.css"),
+        r(Method::GET, "/api/oauth-clients", "/api/oauth-clients"),
+        r(Method::POST, "/api/oauth-clients", "/api/oauth-clients"),
+        r(
+            Method::PATCH,
+            "/api/oauth-clients/{id}",
+            "/api/oauth-clients/x",
+        ),
+        r(
+            Method::DELETE,
+            "/api/oauth-clients/{id}",
+            "/api/oauth-clients/x",
+        ),
+        r(Method::GET, "/api/keys", "/api/keys"),
+        r(Method::POST, "/api/keys/rotate", "/api/keys/rotate"),
         r(Method::GET, "/api/openapi.json", "/api/openapi.json"),
         r(Method::GET, "/api/openapi.yaml", "/api/openapi.yaml"),
         r(Method::GET, "/api/settings", "/api/settings"),
@@ -522,6 +568,50 @@ pub fn router(state: AppState, cfg: HttpConfig) -> Router {
     let app = Router::new()
         .route("/api/health", get(health::health))
         .route("/api/info", get(auth::info))
+        .route("/.well-known/openid-configuration", get(oidc::discovery))
+        .route("/oauth2/jwks", get(oidc::jwks))
+        .route(
+            "/oauth2/authorize",
+            get(oidc::authorize_get).post(oidc::authorize_post),
+        )
+        .route("/oauth2/token", post(oidc::token))
+        .route(
+            "/oauth2/userinfo",
+            get(oidc::userinfo_get).post(oidc::userinfo_post),
+        )
+        .route("/oauth2/revoke", post(oidc::revoke))
+        .route(
+            "/oauth2/logout",
+            get(oidc::logout_get).post(oidc::logout_post),
+        )
+        .route("/auth/login", get(oidc::login_get).post(oidc::login_post))
+        .route("/auth/login/code", post(oidc::code_request))
+        .route("/auth/login/code/verify", post(oidc::code_verify))
+        .route("/auth/login/passkey", post(oidc::passkey_finish))
+        .route(
+            "/auth/signup",
+            get(oidc::signup_get).post(oidc::signup_post),
+        )
+        .route(
+            "/auth/forgot",
+            get(oidc::forgot_get).post(oidc::forgot_post),
+        )
+        .route(
+            "/auth/consent",
+            get(oidc::consent_get).post(oidc::consent_post),
+        )
+        .route("/auth/page.js", get(oidc::page_js))
+        .route("/auth/theme.css", get(oidc::theme_css))
+        .route(
+            "/api/oauth-clients",
+            get(oidc::clients).post(oidc::client_create),
+        )
+        .route(
+            "/api/oauth-clients/{id}",
+            patch(oidc::client_update).delete(oidc::client_delete),
+        )
+        .route("/api/keys", get(oidc::keys))
+        .route("/api/keys/rotate", post(oidc::keys_rotate))
         .route("/api/openapi.json", get(openapi::json))
         .route("/api/openapi.yaml", get(openapi::yaml))
         .route("/api/setup", post(auth::setup))
@@ -737,6 +827,10 @@ pub fn router(state: AppState, cfg: HttpConfig) -> Router {
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             ratelimit::global_limit,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            oidc::cors,
         ))
         .with_state(state.clone());
     with_middleware(app, cfg).layer(axum::middleware::from_fn_with_state(

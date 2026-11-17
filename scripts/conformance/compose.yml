@@ -1,0 +1,56 @@
+# OpenID Foundation conformance suite against rackend (SPEC §11.8.7).
+# Started by scripts/conformance/run.sh; not meant to be used by hand.
+name: rackend-conformance
+
+services:
+  mongodb:
+    image: mongo:6.0
+
+  suite:
+    image: registry.gitlab.com/openid/conformance-suite@sha256:a85f8b550fb1e614a60026328852832f6942166e81fbd0f4b3dcf014b4b65c50
+    environment:
+      BASE_URL: https://conformance.test:8443
+      BASE_MTLS_URL: https://conformance.test:8444
+      MONGODB_HOST: mongodb
+      JAVA_EXTRA_ARGS: -Dfintechlabs.devmode=true -Dfintechlabs.startredir=true
+      # Trust Caddy's local CA for calls to https://rackend.test.
+      USE_SYSTEM_CA_CERTS: "1"
+    volumes:
+      - caddy-data:/caddy:ro
+      - ./suite-start.sh:/suite-start.sh:ro
+    entrypoint: ["/bin/sh", "/suite-start.sh"]
+    depends_on: [mongodb, caddy]
+
+  rackend:
+    image: ${RACKEND_IMAGE:-rackend:conformance}
+    environment:
+      RACKEND_PUBLIC_URL: https://rackend.test
+      RACKEND_SUPERUSER_EMAIL: admin@example.com
+      RACKEND_SUPERUSER_PASSWORD: conformance-admin-password
+    ports:
+      - "127.0.0.1:18093:8080"
+
+  caddy:
+    image: caddy:2.10
+    command: ["caddy", "run", "--config", "/work/Caddyfile"]
+    volumes:
+      - caddy-data:/data
+      - ./Caddyfile:/work/Caddyfile:ro
+    networks:
+      default:
+        aliases: [conformance.test, rackend.test]
+
+  runner:
+    image: python:3.13-slim
+    profiles: [run]
+    working_dir: /work
+    environment:
+      CONFORMANCE_SERVER: https://conformance.test:8443/
+      CONFORMANCE_SERVER_MTLS: https://conformance.test:8444/
+      CONFORMANCE_DEV_MODE: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    volumes:
+      - ./:/work
+
+volumes:
+  caddy-data:

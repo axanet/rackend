@@ -106,6 +106,9 @@ pub async fn app(
     app.first_boot()
         .await
         .map_err(|e| format!("first boot failed: {e}"))?;
+    app.ensure_default_client()
+        .await
+        .map_err(|e| format!("cannot create the default OIDC client: {e}"))?;
     Ok(app)
 }
 

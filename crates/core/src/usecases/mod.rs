@@ -13,6 +13,8 @@ pub mod first_boot;
 pub mod jobs;
 pub mod mail;
 pub mod observe;
+pub mod oidc;
+pub mod oidc_keys;
 pub mod openapi;
 pub mod passkeys;
 pub mod realtime;
@@ -81,6 +83,8 @@ pub struct App {
     pub observe: observe::ObserveState,
     /// Realtime hub (SPEC §13).
     pub hub: crate::realtime::Hub,
+    /// OIDC signing keys (SPEC §11.8.6).
+    pub(crate) keys: oidc_keys::KeyCache,
     /// Enabled external providers.
     pub(crate) providers: broker::ProviderCache,
     /// Builds mailers from the `smtp` settings.
@@ -158,6 +162,7 @@ impl App {
             mailer_factory: cfg.mailer_factory,
             mailer: RwLock::new(None),
             providers: broker::ProviderCache::default(),
+            keys: oidc_keys::KeyCache::default(),
             idp: cfg.idp,
             dev_mode: cfg.dev_mode,
             me: me.clone(),
@@ -166,6 +171,7 @@ impl App {
         app.rebuild_blobs();
         app.rebuild_mailer();
         app.reload_providers().await?;
+        app.reload_keys().await?;
         app.realtime_start();
         app.observe_start();
         app.reload_schema().await?;

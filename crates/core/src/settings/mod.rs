@@ -411,6 +411,28 @@ fn check_value(path: &str, v: &Value) -> Result<(), FieldError> {
                 "A cron expression with five fields, e.g. 0 3 * * *, or empty to turn scheduled backups off.",
             ))
         }
+        ("app", "primary_color")
+            if v.as_str().is_some_and(|c| {
+                let hex = c.strip_prefix('#').unwrap_or_default();
+                !(c.is_empty()
+                    || matches!(hex.len(), 3 | 6) && hex.bytes().all(|b| b.is_ascii_hexdigit()))
+            }) =>
+        {
+            Err(FieldError::new(
+                "invalid_color",
+                "A hex color such as #0a8f5f.",
+            ))
+        }
+        ("app", "logo")
+            if v.as_str().is_some_and(|l| {
+                !l.is_empty() && (!l.starts_with("data:image/") || l.len() > 150_000)
+            }) =>
+        {
+            Err(FieldError::new(
+                "invalid_logo",
+                "An image data URL of at most 100 KB (the admin UI makes one from a file).",
+            ))
+        }
         ("storage", "backend") if !matches!(v.as_str(), Some("fs" | "s3")) => {
             Err(FieldError::new("invalid_option", "One of fs, s3."))
         }

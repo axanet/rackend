@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ t.get("login.title") }}</h1>
+<p>{{ subtitle }}</p>
+{% if let Some(e) = error %}<p class="err" role="alert">{{ e }}</p>{% endif %}
+{% if password %}
+<form method="post" action="/auth/login">
+  <input type="hidden" name="ar" value="{{ ar }}">
+  <label>{{ t.get("login.email") }}<input type="email" name="email" value="{{ email }}" autocomplete="username webauthn" required autofocus></label>
+  <label>{{ t.get("login.password") }}<input type="password" name="password" autocomplete="current-password" required maxlength="256"></label>
+  <button type="submit" id="password-submit">{{ t.get("login.submit") }}</button>
+</form>
+{% endif %}
+{% if passkey || otp || !providers.is_empty() %}{% if password %}<p class="or"><span>{{ t.get("login.or") }}</span></p>{% endif %}{% endif %}
+<div class="alt">
+  {% if passkey %}<button type="button" class="secondary" id="passkey" data-collection="{{ collection }}" data-ar="{{ ar }}" hidden>{{ t.get("login.passkey") }}</button>{% endif %}
+  {% for p in providers %}<a class="button secondary" href="{{ p.1 }}">{{ p.0 }}</a>{% endfor %}
+  {% if otp %}
+  <form method="post" action="/auth/login/code" class="inline-form">
+    <input type="hidden" name="ar" value="{{ ar }}">
+    <input type="hidden" name="email" value="{{ email }}" class="mirror-email">
+    <button type="submit" class="secondary">{{ t.get("login.code") }}</button>
+  </form>
+  {% endif %}
+</div>
+{% if !password && !passkey && !otp && providers.is_empty() %}<p class="err">{{ t.get("login.no_methods") }}</p>{% endif %}
+<p class="links">
+  {% if forgot %}<a href="/auth/forgot?ar={{ ar|urlencode }}">{{ t.get("login.forgot") }}</a>{% endif %}
+  {% if signup %}<a href="/auth/signup?ar={{ ar|urlencode }}">{{ t.get("login.signup") }}</a>{% endif %}
+</p>
+{% endblock %}
+{% block scripts %}<script src="/auth/page.js" defer></script>{% endblock %}

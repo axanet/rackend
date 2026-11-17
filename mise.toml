@@ -42,6 +42,10 @@ run = "cargo nextest run -p rackend --test api --features keycloak-tests keycloa
 description = "OpenAPI documents validate; generated TypeScript and Python clients pass a smoke test (Docker, python3, bun)"
 run = "cargo build -p rackend && scripts/openapi-clients.sh"
 
+[tasks."test:conformance"]
+description = "OpenID Foundation conformance suite (Basic OP, Config OP) against the Docker image"
+run = "docker build -t rackend:conformance . && scripts/conformance/run.sh"
+
 [tasks.lint]
 run = [
   "cargo fmt --all --check",

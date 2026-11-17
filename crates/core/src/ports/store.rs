@@ -12,6 +12,7 @@ use serde_json::{Map, Value};
 
 use crate::auth::broker::{IdentityRow, OtpRow, ProviderRow, TokenPurpose, TokenRow};
 use crate::auth::keys::KeyRow;
+use crate::auth::oauth::{ClientRow, CodeRow, ConsentRow};
 use crate::auth::{PasskeyRow, SessionRow, Superuser};
 use crate::domain::files::FileRow;
 use crate::domain::{AuditEntry, Collection, DdlStep, Field, HistoryEntry, Record, TrashEntry};
@@ -219,6 +220,15 @@ pub trait ReadTx {
     fn identities_for(&mut self, user_id: &str) -> Result<Vec<IdentityRow>>;
     /// An OTP by id.
     fn otp_get(&mut self, id: &str) -> Result<Option<OtpRow>>;
+    /// All OAuth clients.
+    fn oauth_clients_list(&mut self) -> Result<Vec<ClientRow>>;
+    /// The consent a user gave a client.
+    fn oauth_consent_get(
+        &mut self,
+        collection_id: &str,
+        user_id: &str,
+        client_id: &str,
+    ) -> Result<Option<ConsentRow>>;
     /// An unused, unexpired token, without using it.
     fn token_get(
         &mut self,
@@ -336,6 +346,42 @@ pub trait WriteTx: ReadTx {
     fn identity_touch(&mut self, id: &str, now: &str) -> Result<()>;
     /// Unlinks an identity of `user_id`; returns whether it existed.
     fn identity_delete(&mut self, user_id: &str, id: &str) -> Result<bool>;
+    /// Inserts or replaces an OAuth client.
+    fn oauth_client_put(&mut self, c: &ClientRow) -> Result<()>;
+    /// Deletes a client, its codes and consents; returns whether it existed.
+    fn oauth_client_delete(&mut self, id: &str) -> Result<bool>;
+    /// Stores an authorization code.
+    fn oauth_code_insert(&mut self, c: &CodeRow) -> Result<()>;
+    /// Marks a code used and returns it as it was (also when already used
+    /// or expired, so callers can detect reuse).
+    fn oauth_code_take(&mut self, hash: &str, now: &str) -> Result<Option<CodeRow>>;
+    /// Records the session an exchange created.
+    fn oauth_code_set_issued(&mut self, hash: &str, session_id: &str) -> Result<()>;
+    /// Stores a consent.
+    fn oauth_consent_put(&mut self, c: &ConsentRow) -> Result<()>;
+    /// Deletes the consents of a user (user deleted).
+    fn oauth_consents_delete_for(&mut self, user_id: &str) -> Result<u64>;
+    /// Deletes codes that expired before `before`.
+    fn oauth_codes_gc(&mut self, before: &str) -> Result<u64>;
+    /// Revokes every active session of a family (the browser session and the
+    /// client sessions created from it); returns their ids.
+    fn sessions_revoke_family(
+        &mut self,
+        family_id: &str,
+        reason: &str,
+        now: &str,
+    ) -> Result<Vec<String>>;
+    /// Revokes every active session of an OIDC client; returns their ids.
+    fn sessions_revoke_client(
+        &mut self,
+        client_id: &str,
+        reason: &str,
+        now: &str,
+    ) -> Result<Vec<String>>;
+    /// Replaces the lifecycle times of a signing key.
+    fn key_update(&mut self, k: &KeyRow) -> Result<()>;
+    /// Deletes a signing key.
+    fn key_delete(&mut self, kid: &str) -> Result<()>;
     /// Unlinks all identities of a user (user deleted).
     fn identities_delete_for(&mut self, user_id: &str) -> Result<u64>;
     /// Stores a single-use token.

@@ -1,0 +1,26 @@
+[
+  {
+    "test-name": "oidcc-scope-address",
+    "variant": "*",
+    "configuration-filename": "config.json",
+    "comment": "the address scope is not supported"
+  },
+  {
+    "test-name": "oidcc-scope-phone",
+    "variant": "*",
+    "configuration-filename": "config.json",
+    "comment": "the phone scope is not supported"
+  },
+  {
+    "test-name": "oidcc-scope-all",
+    "variant": "*",
+    "configuration-filename": "config.json",
+    "comment": "needs the address and phone scopes"
+  },
+  {
+    "test-name": "oidcc-unsigned-request-object-supported-correctly-or-rejected-as-unsupported",
+    "variant": "*",
+    "configuration-filename": "config.json",
+    "comment": "request objects are not supported (request_parameter_supported: false)"
+  }
+]

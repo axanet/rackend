@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use rackend_core::auth::broker::{IdentityRow, OtpRow, ProviderRow, TokenPurpose, TokenRow};
 use rackend_core::auth::keys::KeyRow;
+use rackend_core::auth::oauth::{ClientKind, ClientRow, CodeRow, ConsentRow};
 use rackend_core::auth::{PasskeyRow, SessionRow, SubjectType, Superuser};
 use rackend_core::domain::files::FileRow;
 use rackend_core::domain::{
@@ -220,7 +221,7 @@ fn superuser_from_row(row: &Row<'_>) -> rusqlite::Result<Superuser> {
     })
 }
 
-const SESSION_COLS: &str = "id, family_id, subject_type, collection_id, user_id, client_id, auth_method, access_hash, access_expires, refresh_hash, prev_refresh_hash, refresh_expires, created, last_seen, revoked_at, revoked_reason, ip, user_agent";
+const SESSION_COLS: &str = "id, family_id, subject_type, collection_id, user_id, client_id, auth_method, access_hash, access_expires, refresh_hash, prev_refresh_hash, refresh_expires, created, last_seen, revoked_at, revoked_reason, ip, user_agent, scopes";
 
 fn session_from_row(row: &Row<'_>) -> rusqlite::Result<SessionRow> {
     let st: String = row.get(2)?;
@@ -247,6 +248,7 @@ fn session_from_row(row: &Row<'_>) -> rusqlite::Result<SessionRow> {
         revoked_reason: row.get(15)?,
         ip: row.get(16)?,
         user_agent: row.get(17)?,
+        scopes: row.get(18)?,
     })
 }
 
@@ -293,6 +295,7 @@ fn session_params(s: &SessionRow) -> Vec<SqlValue> {
         opt(&s.revoked_reason),
         opt(&s.ip),
         opt(&s.user_agent),
+        opt(&s.scopes),
     ]
 }
 
@@ -372,6 +375,56 @@ fn otp_from_row(r: &Row<'_>) -> rusqlite::Result<OtpRow> {
         expires: r.get(5)?,
         attempts: u32::try_from(r.get::<_, i64>(6)?).unwrap_or(u32::MAX),
         used_at: r.get(7)?,
+    })
+}
+
+const CLIENT_COLS: &str = "id, name, kind, secret_hash, redirect_uris, post_logout_redirect_uris, scopes, collection_id, first_party, dev, id_token_alg, access_ttl_s, refresh_ttl_s, enabled, created, updated, require_pkce";
+
+fn json_list(s: String) -> Vec<String> {
+    serde_json::from_str(&s).unwrap_or_default()
+}
+
+fn client_from_row(r: &Row<'_>) -> rusqlite::Result<ClientRow> {
+    Ok(ClientRow {
+        id: r.get(0)?,
+        name: r.get(1)?,
+        kind: ClientKind::parse(&r.get::<_, String>(2)?).unwrap_or(ClientKind::Public),
+        secret_hash: r.get(3)?,
+        redirect_uris: json_list(r.get(4)?),
+        post_logout_redirect_uris: json_list(r.get(5)?),
+        scopes: r
+            .get::<_, String>(6)?
+            .split_whitespace()
+            .map(str::to_owned)
+            .collect(),
+        collection_id: r.get(7)?,
+        first_party: r.get(8)?,
+        dev: r.get(9)?,
+        id_token_alg: r.get(10)?,
+        access_ttl_s: r.get(11)?,
+        refresh_ttl_s: r.get(12)?,
+        enabled: r.get(13)?,
+        created: r.get(14)?,
+        updated: r.get(15)?,
+        require_pkce: r.get(16)?,
+    })
+}
+
+const CODE_COLS: &str = "hash, client_id, session_id, redirect_uri, scopes, code_challenge, nonce, auth_time, expires, used_at, issued_session_id";
+
+fn code_from_row(r: &Row<'_>) -> rusqlite::Result<CodeRow> {
+    Ok(CodeRow {
+        hash: r.get(0)?,
+        client_id: r.get(1)?,
+        session_id: r.get(2)?,
+        redirect_uri: r.get(3)?,
+        scopes: r.get(4)?,
+        code_challenge: r.get(5)?,
+        nonce: r.get(6)?,
+        auth_time: r.get(7)?,
+        expires: r.get(8)?,
+        used_at: r.get(9)?,
+        issued_session_id: r.get(10)?,
     })
 }
 
@@ -831,6 +884,39 @@ impl ReadTx for SqliteTx<'_> {
             .map_err(sql)
     }
 
+    fn oauth_clients_list(&mut self) -> CoreResult<Vec<ClientRow>> {
+        self.collect(
+            &format!("SELECT {CLIENT_COLS} FROM _oauth_clients ORDER BY created, id"),
+            [],
+            client_from_row,
+        )
+    }
+
+    fn oauth_consent_get(
+        &mut self,
+        collection_id: &str,
+        user_id: &str,
+        client_id: &str,
+    ) -> CoreResult<Option<ConsentRow>> {
+        self.conn
+            .query_row(
+                "SELECT user_id, collection_id, client_id, scopes, granted_at FROM _oauth_consents
+                 WHERE collection_id = ?1 AND user_id = ?2 AND client_id = ?3",
+                [collection_id, user_id, client_id],
+                |r| {
+                    Ok(ConsentRow {
+                        user_id: r.get(0)?,
+                        collection_id: r.get(1)?,
+                        client_id: r.get(2)?,
+                        scopes: r.get(3)?,
+                        granted_at: r.get(4)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(sql)
+    }
+
     fn providers_list(&mut self) -> CoreResult<Vec<ProviderRow>> {
         self.collect(
             &format!("SELECT {PROVIDER_COLS} FROM _auth_providers ORDER BY name"),
@@ -1051,7 +1137,7 @@ impl WriteTx for SqliteTx<'_> {
     }
 
     fn session_insert(&mut self, s: &SessionRow) -> CoreResult<()> {
-        let placeholders: Vec<String> = (1..=18).map(|i| format!("?{i}")).collect();
+        let placeholders: Vec<String> = (1..=19).map(|i| format!("?{i}")).collect();
         self.conn
             .execute(
                 &format!(
@@ -1361,6 +1447,185 @@ impl WriteTx for SqliteTx<'_> {
                 .map_err(sql)?;
         }
         Ok(row)
+    }
+
+    fn oauth_client_put(&mut self, c: &ClientRow) -> CoreResult<()> {
+        self.conn
+            .execute(
+                &format!(
+                    "INSERT OR REPLACE INTO _oauth_clients ({CLIENT_COLS})
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)"
+                ),
+                params![
+                    c.id,
+                    c.name,
+                    c.kind.as_str(),
+                    c.secret_hash,
+                    serde_json::to_string(&c.redirect_uris).unwrap_or_else(|_| "[]".into()),
+                    serde_json::to_string(&c.post_logout_redirect_uris).unwrap_or_else(|_| "[]".into()),
+                    c.scopes.join(" "),
+                    c.collection_id,
+                    c.first_party,
+                    c.dev,
+                    c.id_token_alg,
+                    c.access_ttl_s,
+                    c.refresh_ttl_s,
+                    c.enabled,
+                    c.created,
+                    c.updated,
+                    c.require_pkce
+                ],
+            )
+            .map(drop)
+            .map_err(sql)
+    }
+
+    fn oauth_client_delete(&mut self, id: &str) -> CoreResult<bool> {
+        self.conn
+            .execute("DELETE FROM _oauth_codes WHERE client_id = ?1", [id])
+            .map_err(sql)?;
+        self.conn
+            .execute("DELETE FROM _oauth_consents WHERE client_id = ?1", [id])
+            .map_err(sql)?;
+        self.conn
+            .execute("DELETE FROM _oauth_clients WHERE id = ?1", [id])
+            .map(|n| n > 0)
+            .map_err(sql)
+    }
+
+    fn oauth_code_insert(&mut self, c: &CodeRow) -> CoreResult<()> {
+        self.conn
+            .execute(
+                &format!("INSERT INTO _oauth_codes ({CODE_COLS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"),
+                params![
+                    c.hash,
+                    c.client_id,
+                    c.session_id,
+                    c.redirect_uri,
+                    c.scopes,
+                    c.code_challenge,
+                    c.nonce,
+                    c.auth_time,
+                    c.expires,
+                    c.used_at,
+                    c.issued_session_id
+                ],
+            )
+            .map(drop)
+            .map_err(sql)
+    }
+
+    fn oauth_code_take(&mut self, hash: &str, now: &str) -> CoreResult<Option<CodeRow>> {
+        let row = self
+            .conn
+            .query_row(
+                &format!("SELECT {CODE_COLS} FROM _oauth_codes WHERE hash = ?1"),
+                [hash],
+                code_from_row,
+            )
+            .optional()
+            .map_err(sql)?;
+        if row.as_ref().is_some_and(|r| r.used_at.is_none()) {
+            self.conn
+                .execute(
+                    "UPDATE _oauth_codes SET used_at = ?2 WHERE hash = ?1",
+                    [hash, now],
+                )
+                .map_err(sql)?;
+        }
+        Ok(row)
+    }
+
+    fn oauth_code_set_issued(&mut self, hash: &str, session_id: &str) -> CoreResult<()> {
+        self.conn
+            .execute(
+                "UPDATE _oauth_codes SET issued_session_id = ?2 WHERE hash = ?1",
+                [hash, session_id],
+            )
+            .map(drop)
+            .map_err(sql)
+    }
+
+    fn oauth_consent_put(&mut self, c: &ConsentRow) -> CoreResult<()> {
+        self.conn
+            .execute(
+                "INSERT OR REPLACE INTO _oauth_consents (user_id, collection_id, client_id, scopes, granted_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![c.user_id, c.collection_id, c.client_id, c.scopes, c.granted_at],
+            )
+            .map(drop)
+            .map_err(sql)
+    }
+
+    fn oauth_consents_delete_for(&mut self, user_id: &str) -> CoreResult<u64> {
+        self.conn
+            .execute("DELETE FROM _oauth_consents WHERE user_id = ?1", [user_id])
+            .map(|n| n as u64)
+            .map_err(sql)
+    }
+
+    fn oauth_codes_gc(&mut self, before: &str) -> CoreResult<u64> {
+        self.conn
+            .execute("DELETE FROM _oauth_codes WHERE expires < ?1", [before])
+            .map(|n| n as u64)
+            .map_err(sql)
+    }
+
+    fn sessions_revoke_family(
+        &mut self,
+        family_id: &str,
+        reason: &str,
+        now: &str,
+    ) -> CoreResult<Vec<String>> {
+        let ids = self.collect(
+            "SELECT id FROM _sessions WHERE family_id = ?1 AND revoked_at IS NULL",
+            [family_id],
+            |r| r.get::<_, String>(0),
+        )?;
+        self.conn
+            .execute(
+                "UPDATE _sessions SET revoked_at = ?2, revoked_reason = ?3 WHERE family_id = ?1 AND revoked_at IS NULL",
+                params![family_id, now, reason],
+            )
+            .map_err(sql)?;
+        Ok(ids)
+    }
+
+    fn sessions_revoke_client(
+        &mut self,
+        client_id: &str,
+        reason: &str,
+        now: &str,
+    ) -> CoreResult<Vec<String>> {
+        let ids = self.collect(
+            "SELECT id FROM _sessions WHERE client_id = ?1 AND revoked_at IS NULL",
+            [client_id],
+            |r| r.get::<_, String>(0),
+        )?;
+        self.conn
+            .execute(
+                "UPDATE _sessions SET revoked_at = ?2, revoked_reason = ?3 WHERE client_id = ?1 AND revoked_at IS NULL",
+                params![client_id, now, reason],
+            )
+            .map_err(sql)?;
+        Ok(ids)
+    }
+
+    fn key_update(&mut self, k: &KeyRow) -> CoreResult<()> {
+        self.conn
+            .execute(
+                "UPDATE _keys SET activated_at = ?2, retired_at = ?3, delete_after = ?4 WHERE kid = ?1",
+                params![k.kid, k.activated_at, k.retired_at, k.delete_after],
+            )
+            .map(drop)
+            .map_err(sql)
+    }
+
+    fn key_delete(&mut self, kid: &str) -> CoreResult<()> {
+        self.conn
+            .execute("DELETE FROM _keys WHERE kid = ?1", [kid])
+            .map(drop)
+            .map_err(sql)
     }
 
     fn tokens_void(&mut self, user_id: &str, purpose: TokenPurpose, now: &str) -> CoreResult<u64> {

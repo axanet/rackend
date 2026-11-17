@@ -64,9 +64,11 @@ impl App {
         let before = format_timestamp(self.clock.now() - Duration::days(30));
         let tokens_before = format_timestamp(self.clock.now() - Duration::days(1));
         self.store
-            .write(
-                move |tx| Ok(tx.sessions_delete_before(&before)? + tx.tokens_gc(&tokens_before)?),
-            )
+            .write(move |tx| {
+                Ok(tx.sessions_delete_before(&before)?
+                    + tx.tokens_gc(&tokens_before)?
+                    + tx.oauth_codes_gc(&tokens_before)?)
+            })
             .await
     }
 }

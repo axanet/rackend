@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ t.get("consent.title") }}</h1>
+<p>{{ asks }}</p>
+<ul class="scopes">{% for s in scopes %}<li>{{ s }}</li>{% endfor %}</ul>
+<p class="hint">{{ signed_in_as }}</p>
+<form method="post" action="/auth/consent" class="row">
+  <input type="hidden" name="ar" value="{{ ar }}">
+  <button type="submit" name="decision" value="deny" class="secondary">{{ t.get("consent.deny") }}</button>
+  <button type="submit" name="decision" value="allow">{{ t.get("consent.allow") }}</button>
+</form>
+{% endblock %}

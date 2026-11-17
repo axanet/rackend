@@ -1,0 +1,47 @@
+[
+  {
+    "test-name": "oidcc-scope-profile",
+    "variant": "*",
+    "configuration-filename": "config.json",
+    "current-block": "",
+    "condition": "VerifyScopesReturnedInUserInfoClaims",
+    "expected-result": "warning",
+    "comment": "rackend returns the profile claims it has (name, picture, updated_at); the test user has no given_name, locale and so on"
+  },
+  {
+    "test-name": "oidcc-scope-email",
+    "variant": "*",
+    "configuration-filename": "config.json",
+    "current-block": "Verify authorization endpoint response",
+    "condition": "EnsureIdTokenDoesNotContainEmailForScopeEmail",
+    "expected-result": "warning",
+    "comment": "deliberate (ADR 0017): scope claims are also in the ID token, where SPA libraries read them"
+  },
+  {
+    "test-name": "oidcc-alternate-happy-flow",
+    "variant": "*",
+    "configuration-filename": "config.json",
+    "current-block": "Verify authorization endpoint response",
+    "condition": "EnsureIdTokenDoesNotContainEmailForScopeEmail",
+    "expected-result": "warning",
+    "comment": "deliberate (ADR 0017): scope claims are also in the ID token"
+  },
+  {
+    "test-name": "oidcc-ensure-request-with-acr-values-succeeds",
+    "variant": "*",
+    "configuration-filename": "config.json",
+    "current-block": "Verify authorization endpoint response",
+    "condition": "ValidateIdTokenACRClaimAgainstAcrValuesRequest",
+    "expected-result": "warning",
+    "comment": "acr values are not supported; the request succeeds without an acr claim"
+  },
+  {
+    "test-name": "oidcc-claims-essential",
+    "variant": "*",
+    "configuration-filename": "config.json",
+    "current-block": "",
+    "condition": "EnsureUserInfoContainsName",
+    "expected-result": "warning",
+    "comment": "the claims parameter is not supported (claims_parameter_supported: false); name comes with the profile scope"
+  }
+]

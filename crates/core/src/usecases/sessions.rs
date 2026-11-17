@@ -110,6 +110,7 @@ pub fn new_session(subject: &Subject, ctx: &RequestCtx, method: &str) -> (Sessio
         revoked_reason: None,
         ip: ctx.ip.clone(),
         user_agent: ctx.user_agent.clone(),
+        scopes: None,
     };
     let tokens = Tokens {
         access_token: access,
@@ -162,6 +163,15 @@ pub enum RefreshScope<'a> {
     Superuser,
     /// `/api/collections/{c}/auth-refresh`, by collection id.
     Collection(&'a str),
+    /// `/oauth2/token`: a session of this OIDC client, with its lifetimes.
+    Client {
+        /// Client id.
+        client_id: &'a str,
+        /// Access token lifetime.
+        access_ttl_s: i64,
+        /// Refresh token lifetime.
+        refresh_ttl_s: i64,
+    },
 }
 
 fn idle_expired(row: &SessionRow, idle: Option<Duration>, now: OffsetDateTime) -> bool {
@@ -305,9 +315,17 @@ impl App {
         }
         let compiled = self.schema.get();
         let (ctx2, sid, p2) = (ctx.clone(), session_id.clone(), presented.clone());
-        let scope_collection = match scope {
-            RefreshScope::Superuser => None,
-            RefreshScope::Collection(id) => Some(id.to_owned()),
+        let (scope_collection, scope_client) = match scope {
+            RefreshScope::Superuser => (None, None),
+            RefreshScope::Collection(id) => (Some(id.to_owned()), None),
+            RefreshScope::Client {
+                client_id,
+                access_ttl_s,
+                refresh_ttl_s,
+            } => (
+                None,
+                Some((client_id.to_owned(), access_ttl_s, refresh_ttl_s)),
+            ),
         };
         let result = self
             .store
@@ -317,14 +335,21 @@ impl App {
                     let Some(mut row) = tx.session_get(&sid)? else {
                         return Ok(Err(false));
                     };
-                    let in_scope = match &scope_collection {
-                        None => row.subject_type == SubjectType::Superuser,
-                        Some(c) => {
+                    let in_scope = match (&scope_collection, &scope_client) {
+                        (_, Some((client, ..))) => {
+                            row.subject_type == SubjectType::User
+                                && row.client_id.as_deref() == Some(client.as_str())
+                        }
+                        (None, None) => {
+                            row.subject_type == SubjectType::Superuser && row.client_id.is_none()
+                        }
+                        (Some(c), None) => {
                             row.subject_type == SubjectType::User
                                 && row.collection_id.as_deref() == Some(c)
+                                && row.client_id.is_none()
                         }
                     };
-                    if row.revoked_at.is_some() || !in_scope || row.client_id.is_some() {
+                    if row.revoked_at.is_some() || !in_scope {
                         return Ok(Err(false));
                     }
                     if row
@@ -356,7 +381,11 @@ impl App {
                     let Some(subject) = subject else {
                         return Ok(Err(false));
                     };
-                    let (access_ttl, refresh_ttl, idle) = subject.ttls();
+                    let (mut access_ttl, mut refresh_ttl, idle) = subject.ttls();
+                    if let Some((_, a, r)) = &scope_client {
+                        access_ttl = Duration::seconds(*a);
+                        refresh_ttl = Duration::seconds(*r);
+                    }
                     if idle_expired(&row, idle, ctx2.now) {
                         row.revoked_at = Some(now_s);
                         row.revoked_reason = Some("idle".into());
@@ -484,6 +513,9 @@ impl App {
     /// Resolves an access token to a principal. Revoked sessions fail
     /// immediately (the cache is invalidated on revocation).
     pub async fn authenticate(&self, access_token: &str) -> Result<Principal> {
+        if crate::auth::jwt::looks_like_jwt(access_token) {
+            return self.authenticate_jwt(access_token).await;
+        }
         let session_id = parse_session_token(TokenKind::Access, access_token)
             .ok_or(Error::Unauthorized)?
             .to_owned();
