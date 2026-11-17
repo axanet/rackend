@@ -3,8 +3,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use rackend_core::ports::StoreExt;
-use rackend_http::{AppState, HttpConfig};
 use rackend_store_sqlite::{DataDbPaths, DbOptions, SqliteStore, open_data_db, open_logs_db};
 use time::OffsetDateTime;
 use tokio::net::TcpListener;
@@ -13,12 +11,14 @@ use tokio::sync::oneshot;
 use crate::config::Config;
 use crate::datadir::{DataDir, network_filesystem};
 use crate::exit::Fatal;
-use crate::ui_assets::EmbeddedUi;
+use crate::wiring;
 
 /// How long in-flight requests may take after shutdown starts.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
 /// `PRAGMA optimize` interval (SPEC §6.2).
 const OPTIMIZE_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
+/// Trash purge, audit retention and session cleanup interval.
+const MAINTENANCE_EVERY: Duration = Duration::from_secs(60 * 60);
 
 /// Runs the server until SIGTERM/SIGINT.
 pub async fn run(cfg: Config, version: &'static str) -> Result<(), Fatal> {
@@ -79,15 +79,39 @@ pub async fn run(cfg: Config, version: &'static str) -> Result<(), Fatal> {
     .map_err(|e| Fatal::startup(format!("startup task failed: {e}")))?
     .map_err(|e| Fatal::migration(&e))?;
 
-    // Step 7: settings (the schema cache and rules arrive with collections).
-    let store = Arc::new(SqliteStore::new(data.clone()));
-    let settings = store
-        .read(|tx| tx.settings_list())
-        .await
-        .map_err(|e| Fatal::startup(format!("cannot load settings: {e}")))?;
-    tracing::debug!(count = settings.len(), "settings loaded");
+    // Step 7: settings, schema cache, compiled rules.
+    let app = wiring::app(
+        SqliteStore::new(data.clone()),
+        version,
+        cfg.public_url.clone(),
+    )
+    .await
+    .map_err(|e| Fatal::startup(format!("cannot load settings and collections: {e}")))?;
+    tracing::info!(
+        collections = app.schema.get().schema.all().len(),
+        "schema loaded"
+    );
 
-    // Step 8 (first boot) arrives with auth in M2.
+    // Step 8: first superuser (SPEC §5.5 step 4; the rest of first boot arrives with M2).
+    let mut setup_token = None;
+    if let Some((email, password)) = &cfg.superuser {
+        match app.ensure_superuser(email, password).await {
+            Ok(true) => {
+                tracing::info!(email = %email, "created the first superuser from the environment")
+            }
+            Ok(false) => {}
+            Err(e) => {
+                return Err(Fatal::startup(format!(
+                    "RACKEND_SUPERUSER_EMAIL/PASSWORD: {e}"
+                )));
+            }
+        }
+    } else {
+        setup_token = app
+            .setup_token_if_needed()
+            .await
+            .map_err(|e| Fatal::startup(format!("cannot create the setup token: {e}")))?;
+    }
 
     // Step 9: background jobs.
     let optimize = {
@@ -105,21 +129,48 @@ pub async fn run(cfg: Config, version: &'static str) -> Result<(), Fatal> {
             }
         })
     };
+    let maintenance = {
+        let app = Arc::clone(&app);
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(MAINTENANCE_EVERY);
+            loop {
+                tick.tick().await;
+                match app.job_purge_trash().await {
+                    Ok(0) => {}
+                    Ok(n) => tracing::info!(purged = n, "purged trashed fields/collections"),
+                    Err(e) => tracing::warn!(error = %e, "trash purge failed"),
+                }
+                match app.job_audit_retention().await {
+                    Ok(0) => {}
+                    Ok(n) => tracing::info!(deleted = n, "deleted expired audit entries"),
+                    Err(e) => tracing::warn!(error = %e, "audit retention failed"),
+                }
+                if let Err(e) = app.job_session_gc().await {
+                    tracing::warn!(error = %e, "session cleanup failed");
+                }
+            }
+        })
+    };
 
     // Step 10: bind HTTP.
     let listener = TcpListener::bind(cfg.http_addr)
         .await
         .map_err(|e| Fatal::startup(format!("cannot listen on {}: {e}", cfg.http_addr)))?;
     let addr = listener.local_addr().unwrap_or(cfg.http_addr);
-    let app = rackend_http::router(
-        AppState::new(version, store, Some(Arc::new(EmbeddedUi))),
-        HttpConfig::default(),
-    );
+    let router = wiring::router(Arc::clone(&app), cfg.dev);
     let (stop_tx, stop_rx) = oneshot::channel::<()>();
-    let mut server = tokio::spawn(rackend_http::serve(listener, app, async {
+    let mut server = tokio::spawn(rackend_http::serve(listener, router, async {
         let _ = stop_rx.await;
     }));
     tracing::info!(%addr, version, "rackend is ready");
+    if let Some(token) = setup_token {
+        let host = if addr.ip().is_unspecified() {
+            format!("localhost:{}", addr.port())
+        } else {
+            addr.to_string()
+        };
+        tracing::warn!("Open http://{host}/_/setup?token={token} to create the first superuser.");
+    }
 
     let server_result = tokio::select! {
         () = shutdown_signal() => None,
@@ -146,6 +197,7 @@ pub async fn run(cfg: Config, version: &'static str) -> Result<(), Fatal> {
         }
     }
     optimize.abort();
+    maintenance.abort();
     if let Err(e) = data.shutdown().await {
         tracing::error!(error = %e, "data.db shutdown failed");
     }

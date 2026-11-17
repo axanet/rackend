@@ -145,6 +145,8 @@ pub struct Problem {
     pub max_bytes: Option<u64>,
     /// Allowed methods for 405.
     pub allowed: Vec<String>,
+    /// Further extension members (e.g. batch `results`).
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 impl Problem {
@@ -158,6 +160,7 @@ impl Problem {
             retry_after_s: None,
             max_bytes: None,
             allowed: Vec::new(),
+            extra: serde_json::Map::new(),
         }
     }
 
@@ -191,6 +194,8 @@ pub struct ProblemBody<'a> {
     max_bytes: Option<u64>,
     #[serde(skip_serializing_if = "<[String]>::is_empty")]
     allowed: &'a [String],
+    #[serde(flatten)]
+    extra: &'a serde_json::Map<String, serde_json::Value>,
 }
 
 impl Problem {
@@ -209,6 +214,7 @@ impl Problem {
             retry_after_s: self.retry_after_s,
             max_bytes: self.max_bytes,
             allowed: &self.allowed,
+            extra: &self.extra,
         }
     }
 }
@@ -217,21 +223,21 @@ impl Problem {
 /// problem-mapping middleware.
 #[derive(Debug)]
 pub struct ApiError {
-    problem: Problem,
+    problem: Box<Problem>,
 }
 
 impl ApiError {
     /// An error with the given code and no detail.
     pub fn new(code: ProblemCode) -> Self {
         Self {
-            problem: Problem::new(code),
+            problem: Box::new(Problem::new(code)),
         }
     }
 
     /// An error with the given code and detail text.
     pub fn with_detail(code: ProblemCode, detail: impl Into<String>) -> Self {
         Self {
-            problem: Problem::new(code).with_detail(detail),
+            problem: Box::new(Problem::new(code).with_detail(detail)),
         }
     }
 
@@ -246,19 +252,76 @@ impl ApiError {
     pub fn problem(&self) -> &Problem {
         &self.problem
     }
+
+    /// Mutable access, to add extension members.
+    pub fn problem_mut(&mut self) -> &mut Problem {
+        &mut self.problem
+    }
 }
 
 impl From<Problem> for ApiError {
     fn from(problem: Problem) -> Self {
-        Self { problem }
+        Self {
+            problem: Box::new(problem),
+        }
     }
 }
 
 impl From<CoreError> for ApiError {
     fn from(err: CoreError) -> Self {
         match err {
-            CoreError::NotFound => Self::new(ProblemCode::NotFound),
+            CoreError::BadRequest(d) => Self::with_detail(ProblemCode::BadRequest, d),
+            CoreError::Validation(v) => {
+                let mut p = Problem::new(ProblemCode::ValidationFailed)
+                    .with_detail("One or more fields are invalid.");
+                for (field, errs) in v.0 {
+                    p.errors.insert(
+                        field,
+                        errs.into_iter()
+                            .map(|e| FieldError {
+                                code: e.code.to_owned(),
+                                message: e.message,
+                                params: e.params,
+                            })
+                            .collect(),
+                    );
+                }
+                p.into()
+            }
+            CoreError::RuleCompile { message, position } => {
+                let mut p = Problem::new(ProblemCode::RuleCompileError).with_detail(message);
+                p.position = Some(Position {
+                    line: position.line,
+                    column: position.column,
+                    offset: position.offset,
+                });
+                p.into()
+            }
+            CoreError::Unauthorized => Self::with_detail(
+                ProblemCode::Unauthorized,
+                "Missing, invalid or expired credentials.",
+            ),
+            CoreError::Forbidden(d) => Self::with_detail(ProblemCode::Forbidden, d),
+            CoreError::NotFound => Self::with_detail(
+                ProblemCode::NotFound,
+                "The requested resource does not exist.",
+            ),
             CoreError::Conflict(detail) => Self::with_detail(ProblemCode::Conflict, detail),
+            CoreError::PreconditionFailed => Self::with_detail(
+                ProblemCode::PreconditionFailed,
+                "The record was changed since you read it (If-Match).",
+            ),
+            CoreError::PayloadTooLarge { max_bytes } => {
+                let mut p = Problem::new(ProblemCode::PayloadTooLarge);
+                p.max_bytes = Some(max_bytes);
+                p.into()
+            }
+            CoreError::QueryTimeout => {
+                let mut p = Problem::new(ProblemCode::QueryTimeout)
+                    .with_detail("The query took too long. Simplify the filter or add an index.");
+                p.retry_after_s = Some(1);
+                p.into()
+            }
             CoreError::Unavailable {
                 reason,
                 retry_after_s,
@@ -285,7 +348,7 @@ impl From<CoreError> for ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let mut res = self.problem.code.status().into_response();
-        res.extensions_mut().insert(self.problem);
+        res.extensions_mut().insert(*self.problem);
         res
     }
 }

@@ -4,13 +4,22 @@
 use super::Migration;
 
 /// Migrations of `data.db`.
-pub static DATA_MIGRATIONS: &[Migration] = &[Migration {
-    id: 1,
-    name: "init",
-    sql: include_str!("../../migrations/data/0001_init.sql"),
-    rust: None,
-    foreign_keys_off: false,
-}];
+pub static DATA_MIGRATIONS: &[Migration] = &[
+    Migration {
+        id: 1,
+        name: "init",
+        sql: include_str!("../../migrations/data/0001_init.sql"),
+        rust: None,
+        foreign_keys_off: false,
+    },
+    Migration {
+        id: 2,
+        name: "collections_audit_superusers",
+        sql: include_str!("../../migrations/data/0002_collections_audit_superusers.sql"),
+        rust: None,
+        foreign_keys_off: false,
+    },
+];
 
 /// Migrations of `logs.db` (its own track, SPEC §7.3).
 pub static LOGS_MIGRATIONS: &[Migration] = &[Migration {

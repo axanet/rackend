@@ -18,8 +18,11 @@ time = { workspace = true }
 sha2 = { workspace = true }
 fs4 = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt"] }
+serde_json = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
+proptest = { workspace = true }
 tempfile = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

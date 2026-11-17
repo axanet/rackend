@@ -2,7 +2,7 @@
 
 A self-hosted, single-binary backend-as-a-service written in Rust, inspired by PocketBase: one binary (or one container) gives you a database with an admin UI, a REST API with access rules, authentication (including an OIDC provider), file storage, realtime and observability. SQLite is the only database.
 
-> Status: early development (milestone M0, skeleton & safety net).
+> Status: early development (milestones M0–M1: data safety, collections, records, access rules, audit trail, superusers, minimal admin UI).
 
 ## Run
 

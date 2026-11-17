@@ -41,7 +41,20 @@ The container runs as UID/GID `10001:10001`. Bind mounts must be writable by tha
 | `RACKEND_LOG_FORMAT` | `json` (`pretty` in dev) | `json` or `pretty` |
 | `RACKEND_SQLITE_SYNCHRONOUS` | `FULL` | `NORMAL` trades durability of the last commits on power loss for write speed (never corruption) |
 
-`RACKEND_PUBLIC_URL`, `RACKEND_ENCRYPTION_KEY`, `RACKEND_TRUSTED_PROXIES`, `RACKEND_OTLP_ENDPOINT` and `RACKEND_SUPERUSER_EMAIL`/`_PASSWORD` are reserved for upcoming releases; this version logs a warning if they are set.
+| `RACKEND_PUBLIC_URL` | unset | Overrides the public URL stored in the settings |
+| `RACKEND_SUPERUSER_EMAIL` / `RACKEND_SUPERUSER_PASSWORD` | unset | Create the first superuser without the setup screen (automation) |
+
+`RACKEND_ENCRYPTION_KEY`, `RACKEND_TRUSTED_PROXIES` and `RACKEND_OTLP_ENDPOINT` are reserved for upcoming releases; this version logs a warning if they are set.
+
+## First start
+
+Without `RACKEND_SUPERUSER_EMAIL`/`_PASSWORD`, rackend logs a one-time link on every start until the first superuser exists:
+
+```
+Open http://localhost:8080/_/setup?token=… to create the first superuser.
+```
+
+The setup screen also asks for the public URL users reach the instance at.
 
 ## Upgrades
 

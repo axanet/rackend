@@ -7,7 +7,8 @@ mod store;
 
 pub use clock::{Clock, SystemClock};
 pub use id::{IdGenerator, UuidV7Generator};
-pub use spawner::{BoxFuture, Spawner};
+pub use spawner::{BlockingJob, BoxFuture, Spawner};
 pub use store::{
-    AnyBox, ReadJob, ReadTx, SettingRow, Store, StoreExt, StoreFuture, WriteJob, WriteTx,
+    AnyBox, AuditQuery, ReadJob, ReadTx, RecordPage, RecordQuery, SettingRow, Sort, Store,
+    StoreExt, StoreFuture, WriteJob, WriteTx,
 };

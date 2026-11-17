@@ -28,6 +28,9 @@ const CORE_ALLOWED: &[&str] = &[
     "yrs",
     "webauthn-rs",
     "tokio",
+    // ADR 0007
+    "serde_json",
+    "regex",
 ];
 
 /// Crates that must never appear anywhere in `core`'s dependency tree.

@@ -25,6 +25,10 @@ pub struct Config {
     pub log_level: String,
     pub log_format: LogFormat,
     pub sqlite_synchronous: Synchronous,
+    /// `RACKEND_PUBLIC_URL`: overrides `app.public_url`.
+    pub public_url: Option<String>,
+    /// `RACKEND_SUPERUSER_EMAIL` / `_PASSWORD`: headless first superuser.
+    pub superuser: Option<(String, String)>,
     /// Variables that are recognised but not used by this version yet.
     pub not_yet_supported: Vec<&'static str>,
 }
@@ -32,12 +36,9 @@ pub struct Config {
 /// Variables read in later milestones. Setting them now is not an error, but
 /// the operator is told they have no effect yet.
 const FUTURE_VARS: &[&str] = &[
-    "RACKEND_PUBLIC_URL",
     "RACKEND_ENCRYPTION_KEY",
     "RACKEND_TRUSTED_PROXIES",
     "RACKEND_OTLP_ENDPOINT",
-    "RACKEND_SUPERUSER_EMAIL",
-    "RACKEND_SUPERUSER_PASSWORD",
 ];
 
 impl Config {
@@ -80,6 +81,23 @@ impl Config {
             Some(v) if v.eq_ignore_ascii_case("normal") => Synchronous::Normal,
             Some(v) => bail!("RACKEND_SQLITE_SYNCHRONOUS: expected FULL or NORMAL, got {v:?}"),
         };
+        let public_url = match val("RACKEND_PUBLIC_URL") {
+            None => None,
+            Some(u) => Some(
+                rackend_core::settings::normalize_public_url(&u)
+                    .map_err(|e| anyhow::anyhow!("RACKEND_PUBLIC_URL: {}", e.message))?,
+            ),
+        };
+        let superuser = match (
+            val("RACKEND_SUPERUSER_EMAIL"),
+            val("RACKEND_SUPERUSER_PASSWORD"),
+        ) {
+            (Some(e), Some(p)) => Some((e, p)),
+            (None, None) => None,
+            _ => {
+                bail!("set both RACKEND_SUPERUSER_EMAIL and RACKEND_SUPERUSER_PASSWORD, or neither")
+            }
+        };
         let not_yet_supported = FUTURE_VARS
             .iter()
             .copied()
@@ -92,6 +110,8 @@ impl Config {
             log_level,
             log_format,
             sqlite_synchronous,
+            public_url,
+            superuser,
             not_yet_supported,
         })
     }
@@ -146,7 +166,9 @@ mod tests {
 
     #[test]
     fn future_vars_are_reported() {
-        let c = cfg(&[("RACKEND_PUBLIC_URL", "https://x")]).unwrap();
-        assert_eq!(c.not_yet_supported, vec!["RACKEND_PUBLIC_URL"]);
+        let c = cfg(&[("RACKEND_OTLP_ENDPOINT", "http://x")]).unwrap();
+        assert_eq!(c.not_yet_supported, vec!["RACKEND_OTLP_ENDPOINT"]);
+        assert!(cfg(&[("RACKEND_SUPERUSER_EMAIL", "a@b.c")]).is_err());
+        assert!(cfg(&[("RACKEND_PUBLIC_URL", "ftp://x")]).is_err());
     }
 }

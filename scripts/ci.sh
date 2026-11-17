@@ -21,7 +21,9 @@ case "${1:-}" in
     cleanup() { docker rm -f "$name" "$name-2" >/dev/null 2>&1 || true; docker volume rm "$vol" >/dev/null 2>&1 || true; }
     trap cleanup EXIT
 
-    docker run -d --name "$name" -v "$vol:/data" -p 127.0.0.1:18080:8080 "$image"
+    docker run -d --name "$name" -v "$vol:/data" -p 127.0.0.1:18080:8080 \
+      -e RACKEND_SUPERUSER_EMAIL=smoke@example.com -e RACKEND_SUPERUSER_PASSWORD=smoke-test-password \
+      "$image"
     for _ in $(seq 1 60); do
       status=$(docker inspect -f '{{.State.Health.Status}}' "$name")
       [ "$status" = healthy ] && break
@@ -30,6 +32,17 @@ case "${1:-}" in
     [ "$status" = healthy ] || { docker logs "$name"; echo "container never became healthy"; exit 1; }
     curl -fsS http://127.0.0.1:18080/api/health | grep -q '"status":"ok"'
     curl -sS http://127.0.0.1:18080/api/nope -o /dev/null -w '%{content_type}' | grep -q 'application/problem+json'
+
+    # Headless setup via env, then a simple authenticated API call.
+    token=$(curl -fsS -H 'content-type: application/json' \
+      -d '{"email":"smoke@example.com","password":"smoke-test-password"}' \
+      http://127.0.0.1:18080/api/superusers/auth-with-password | sed -E 's/.*"access_token":"([^"]+)".*/\1/')
+    curl -fsS -H "authorization: Bearer $token" -H 'content-type: application/json' \
+      -d '{"name":"smoke","fields":[{"name":"note","type":"text"}],"rules":{"create":"","list":""}}' \
+      http://127.0.0.1:18080/api/collections >/dev/null
+    curl -fsS -H 'content-type: application/json' -d '{"note":"hello"}' \
+      http://127.0.0.1:18080/api/collections/smoke/records >/dev/null
+    curl -fsS http://127.0.0.1:18080/api/collections/smoke/records | grep -q '"note":"hello"'
 
     # A second container on the same volume must refuse to start (exit 75).
     set +e

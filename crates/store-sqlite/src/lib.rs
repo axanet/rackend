@@ -8,9 +8,12 @@
 
 pub mod conn;
 pub mod db;
+pub mod ddl;
 mod error;
 pub mod migrate;
 mod open;
+pub mod records;
+pub mod rules_sql;
 pub mod store;
 
 pub use conn::{DbOptions, Synchronous};

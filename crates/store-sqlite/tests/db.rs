@@ -43,7 +43,10 @@ async fn write_commits_and_read_sees_it() {
         .read(|tx| tx.meta_get("schema_version"))
         .await
         .unwrap();
-    assert_eq!(v.as_deref(), Some("1"));
+    let head = rackend_store_sqlite::migrate::DATA_MIGRATIONS
+        .len()
+        .to_string();
+    assert_eq!(v.as_deref(), Some(head.as_str()));
 }
 
 #[tokio::test(flavor = "multi_thread")]

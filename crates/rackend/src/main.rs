@@ -1,18 +1,11 @@
 //! The `rackend` binary: CLI and composition root (SPEC §4.1, §5.1).
 
-mod config;
-mod datadir;
-mod exit;
-mod healthcheck;
-mod logging;
-mod serve;
-mod ui_assets;
-
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 
-use crate::config::Config;
+use rackend::config::Config;
+use rackend::{exit, healthcheck, logging, serve};
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;

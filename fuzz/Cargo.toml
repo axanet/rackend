@@ -1,0 +1,22 @@
+# Parser fuzzing (SPEC §9.6). Needs nightly: `cargo +nightly fuzz run rule_parser`.
+[package]
+name = "rackend-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+rackend-core = { path = "../crates/core" }
+
+[[bin]]
+name = "rule_parser"
+path = "fuzz_targets/rule_parser.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]

@@ -6,3 +6,6 @@
 .DS_Store
 *.db-wal
 *.db-shm
+/fuzz/target
+/fuzz/corpus
+/fuzz/artifacts

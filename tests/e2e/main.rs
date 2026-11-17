@@ -186,7 +186,8 @@ async fn too_new_schema_exits_78_and_leaves_data_untouched() {
     let (code, out) = run_to_exit(dir.path());
     assert_eq!(code, 78, "{out}");
     assert!(
-        out.contains("database schema v999 is newer than this binary supports (v1). Downgrading is not supported"),
+        out.contains("database schema v999 is newer than this binary supports (v")
+            && out.contains("Downgrading is not supported"),
         "{out}"
     );
     assert_eq!(std::fs::read(&db).unwrap(), before, "data.db unchanged");

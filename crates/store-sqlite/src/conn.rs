@@ -61,7 +61,7 @@ impl DbOptions {
 
 /// Opens the read-write connection (creating the file) and applies PRAGMAs.
 pub fn open_writer(path: &Path, opts: &DbOptions) -> Result<Connection, Error> {
-    let conn = Connection::open_with_flags(
+    let mut conn = Connection::open_with_flags(
         path,
         OpenFlags::SQLITE_OPEN_READ_WRITE
             | OpenFlags::SQLITE_OPEN_CREATE
@@ -72,23 +72,24 @@ pub fn open_writer(path: &Path, opts: &DbOptions) -> Result<Connection, Error> {
     if !mode.eq_ignore_ascii_case("wal") {
         return Err(Error::WalUnavailable(mode));
     }
-    apply_common(&conn, opts)?;
+    apply_common(&mut conn, opts)?;
     Ok(conn)
 }
 
 /// Opens a read-only connection and applies PRAGMAs.
 pub fn open_reader(path: &Path, opts: &DbOptions) -> Result<Connection, Error> {
-    let conn = Connection::open_with_flags(
+    let mut conn = Connection::open_with_flags(
         path,
         OpenFlags::SQLITE_OPEN_READ_ONLY
             | OpenFlags::SQLITE_OPEN_NO_MUTEX
             | OpenFlags::SQLITE_OPEN_URI,
     )?;
-    apply_common(&conn, opts)?;
+    apply_common(&mut conn, opts)?;
     Ok(conn)
 }
 
-fn apply_common(conn: &Connection, opts: &DbOptions) -> Result<(), Error> {
+fn apply_common(conn: &mut Connection, opts: &DbOptions) -> Result<(), Error> {
+    crate::records::install_timeout_handler(conn)?;
     conn.busy_timeout(Duration::from_millis(5000))?;
     conn.execute_batch(&format!(
         "PRAGMA synchronous = {};

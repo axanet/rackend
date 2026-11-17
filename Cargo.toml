@@ -38,7 +38,7 @@ tokio = { version = "1.54", default-features = false }
 axum = { version = "0.8.9", default-features = false }
 tower = { version = "0.5.3", default-features = false }
 tower-http = { version = "0.7.1", default-features = false }
-rusqlite = { version = "0.43", features = ["bundled"] }
+rusqlite = { version = "0.43", features = ["bundled", "hooks"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 thiserror = "2.0.21"
@@ -49,6 +49,11 @@ uuid = { version = "1.29", features = ["v7", "serde"] }
 time = { version = "0.3.55", features = ["formatting", "parsing", "macros"] }
 sha2 = "0.11.1"
 base64 = "0.23"
+argon2 = "0.6"
+rand = { version = "0.10", default-features = false, features = ["std", "sys_rng"] }
+subtle = "2.6"
+# ADR 0007: pure-computation crates allowed in core
+regex = "1.13"
 fs4 = { version = "1.1", features = ["sync"] }
 clap = { version = "4.6.8", features = ["derive", "env"] }
 mimalloc = { version = "0.1.52", default-features = false }
