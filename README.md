@@ -31,3 +31,5 @@ Layout: `crates/core` (domain, use cases, ports; no I/O), adapter crates (`store
 ## License
 
 To be decided before the first public release.
+
+The admin UI bundles the Redaction 20 font by MCKL and the Geist fonts by Vercel, all under the SIL Open Font License 1.1. Their license texts ship with the UI in [admin-ui/static/licenses](admin-ui/static/licenses) (served at `/_/licenses/`); the font files are used unmodified.

@@ -1,6 +1,17 @@
 @import '@fontsource-variable/geist';
 @import '@fontsource-variable/geist-mono';
 
+/* Redaction 20 (MCKL, SIL OFL 1.1, see src/lib/fonts/redaction/OFL.txt and
+   static/licenses/): display face for page titles. Regular weight only, the
+   file exactly as MCKL released it (Visual Identity: Font licensing). */
+@font-face {
+	font-family: 'Redaction 20';
+	src: url('./lib/fonts/redaction/Redaction_20-Regular.woff2') format('woff2');
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
+
 /* rackend admin: global styles.
    Source of truth: the vault note "17 Brand/Visual Identity" and the homepage
    tokens (rackend-homepage/src/styles/global.css). Token values below are
@@ -15,6 +26,7 @@
 	color-scheme: light dark;
 
 	--font-sans: 'Geist Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+	--font-display: 'Redaction 20', ui-serif, Georgia, serif;
 	--font-mono: 'Geist Mono Variable', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 
 	--bg: light-dark(#fafaf9, #0a0b0d);
@@ -104,9 +116,14 @@ h3 {
 	line-height: 1.15;
 	text-wrap: balance;
 }
+/* Page titles: Redaction 20 at display size (32px and up). Smaller headings
+   stay in Geist; Redaction reads thin there. */
 h1 {
-	font-size: 1.5rem;
-	letter-spacing: -0.03em;
+	font-family: var(--font-display);
+	font-weight: 400;
+	font-size: 2rem;
+	letter-spacing: -0.02em;
+	line-height: 1.1;
 }
 h2 {
 	font-size: 1.1rem;

@@ -1,7 +1,7 @@
 <script lang="ts">
 	// App shell: collection navigation, account and theme controls.
 	import { goto } from '$app/navigation';
-	import { resolve } from '$app/paths';
+	import { asset, resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import Icon from '#lib/components/Icon.svelte';
 	import Logo from '#lib/components/Logo.svelte';
@@ -54,6 +54,7 @@
 			<div class="row">
 				<ThemeToggle />
 				<button class="btn sm icon ghost" onclick={signOut} aria-label="Sign out" title="Sign out"><Icon name="logout" /></button>
+				<a class="licenses" href={asset("licenses/redaction-OFL.txt")} title="Redaction 20 by MCKL and Geist by Vercel, SIL Open Font License 1.1">Font licenses</a>
 			</div>
 		</div>
 	</nav>
@@ -147,7 +148,19 @@
 	}
 	.row {
 		display: flex;
+		align-items: center;
 		gap: 4px;
+	}
+	.licenses {
+		margin-left: auto;
+		padding: 0 8px;
+		font-size: 12px;
+		color: var(--fg-subtle);
+		text-decoration: none;
+	}
+	.licenses:hover {
+		color: var(--fg);
+		text-decoration: underline;
 	}
 	main {
 		min-width: 0;

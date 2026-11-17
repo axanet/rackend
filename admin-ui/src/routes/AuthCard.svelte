@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import { asset } from '$app/paths';
 	import Logo from '#lib/components/Logo.svelte';
 
 	let { eyebrow, title, subtitle, children }: { eyebrow: string; title: string; subtitle: string; children: Snippet } = $props();
@@ -13,6 +14,11 @@
 		<p class="hint">{subtitle}</p>
 		{@render children()}
 	</section>
+	<p class="fonts">
+		Set in Redaction 20 by MCKL (<a href={asset("licenses/redaction-OFL.txt")}>license</a>) and Geist by Vercel
+		(<a href={asset("licenses/geist-OFL.txt")}>sans</a>, <a href={asset("licenses/geist-mono-OFL.txt")}>mono</a>), under the SIL Open Font
+		License 1.1.
+	</p>
 </main>
 
 <style>
@@ -30,8 +36,14 @@
 		display: grid;
 		gap: 10px;
 	}
-	h1 {
-		font-size: 1.6rem;
+	.fonts {
+		max-width: 440px;
+		text-align: center;
+		font-size: 12px;
+		color: var(--fg-subtle);
+	}
+	.fonts a {
+		color: inherit;
 	}
 	section :global(form) {
 		display: grid;
