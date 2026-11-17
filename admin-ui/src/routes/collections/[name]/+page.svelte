@@ -6,6 +6,7 @@
 	import { ApiError, del, fileUrl, get, isImageName, message, type Field, type Page, type RecordRow } from '#lib/api.ts';
 	import Icon from '#lib/components/Icon.svelte';
 	import RecordForm from '#lib/components/RecordForm.svelte';
+	import { live } from '#lib/realtime.svelte.ts';
 	import { session } from '#lib/session.svelte.ts';
 
 	const name = $derived(page.params.name ?? '');
@@ -53,6 +54,22 @@
 	$effect(() => {
 		void [collection?.id, collection?.updated, filter, sort, pageNo, perPage];
 		load();
+	});
+
+	// Live updates: any change in this collection reloads the current page
+	// (debounced), so sorting, filters and paging stay server-side.
+	let reloadTimer: ReturnType<typeof setTimeout> | undefined;
+	$effect(() => {
+		const c = collection;
+		if (!c) return;
+		live.watch([`records:${c.name}`], () => {
+			clearTimeout(reloadTimer);
+			reloadTimer = setTimeout(load, 250);
+		});
+		return () => {
+			clearTimeout(reloadTimer);
+			live.unwatch();
+		};
 	});
 
 	const columns = $derived(collection ? ['id', ...collection.fields.map((f) => f.name), 'updated'] : []);
@@ -114,6 +131,9 @@
 			<div class="name-row">
 				<h1>{collection.name}</h1>
 				<span class="chip" aria-live="polite">{status || 'loading…'}</span>
+				<span class="live" class:on={live.connected} title={live.connected ? 'Updates appear as they happen' : 'Not receiving live updates'}>
+					<span class="dot" aria-hidden="true"></span>{live.connected ? 'live' : 'offline'}
+				</span>
 			</div>
 		</div>
 		<div class="actions">
@@ -375,5 +395,37 @@
 		text-overflow: ellipsis;
 		vertical-align: middle;
 		margin-right: 6px;
+	}
+	.live {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		font: 500 11px/1 var(--font-mono);
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: var(--fg-subtle);
+	}
+	.live .dot {
+		width: 7px;
+		height: 7px;
+		border-radius: 50%;
+		background: var(--border-strong);
+	}
+	.live.on {
+		color: var(--accent-text);
+	}
+	.live.on .dot {
+		background: var(--accent);
+		box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+	}
+	@media (prefers-reduced-motion: no-preference) {
+		.live.on .dot {
+			animation: pulse 2.4s var(--ease-out) infinite;
+		}
+	}
+	@keyframes pulse {
+		50% {
+			box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 0%, transparent);
+		}
 	}
 </style>

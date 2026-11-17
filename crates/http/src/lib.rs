@@ -369,6 +369,9 @@ pub fn routes() -> Vec<RouteSpec> {
             "/api/files/posts/x/a_abcdefgh.png",
         ),
         r(Method::POST, "/api/files/token", "/api/files/token"),
+        r(Method::GET, "/api/realtime", "/api/realtime"),
+        r(Method::POST, "/api/realtime", "/api/realtime"),
+        r(Method::GET, "/api/ws", "/api/ws"),
         r(Method::GET, "/api/files/usage", "/api/files/usage"),
         r(
             Method::POST,
@@ -386,7 +389,7 @@ pub fn routes() -> Vec<RouteSpec> {
 
 /// The full application router with all middleware.
 pub fn router(state: AppState, cfg: HttpConfig) -> Router {
-    use api::{admin, auth, collections, files, records, users};
+    use api::{admin, auth, collections, files, realtime, records, users};
     let app = Router::new()
         .route("/api/health", get(health::health))
         .route("/api/info", get(auth::info))
@@ -484,6 +487,8 @@ pub fn router(state: AppState, cfg: HttpConfig) -> Router {
                 .merge(patch(records::update).layer(DefaultBodyLimit::disable()))
                 .delete(records::delete),
         )
+        .route("/api/realtime", get(realtime::sse).post(realtime::bind))
+        .route("/api/ws", get(realtime::ws))
         .route("/api/files/token", post(files::token))
         .route("/api/files/usage", get(files::usage))
         .route("/api/files/{c}/{id}/{filename}", get(files::download))

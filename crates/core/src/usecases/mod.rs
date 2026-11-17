@@ -10,6 +10,7 @@ pub mod files;
 pub mod first_boot;
 pub mod jobs;
 pub mod passkeys;
+pub mod realtime;
 pub mod records;
 pub mod secrets;
 pub mod sessions;
@@ -62,6 +63,8 @@ pub struct App {
     pub(crate) thumbs: files::Thumbs,
     /// A cleanup of removed files is running.
     pub(crate) file_cleanup_running: std::sync::atomic::AtomicBool,
+    /// Realtime hub (SPEC §13).
+    pub hub: crate::realtime::Hub,
     /// This app, for background tasks spawned from `&self` methods.
     pub(crate) me: std::sync::Weak<App>,
 }
@@ -109,10 +112,12 @@ impl App {
             images: cfg.images,
             thumbs: files::Thumbs::default(),
             file_cleanup_running: std::sync::atomic::AtomicBool::new(false),
+            hub: crate::realtime::Hub::default(),
             me: me.clone(),
         });
         app.reload_settings().await?;
         app.rebuild_blobs();
+        app.realtime_start();
         app.reload_schema().await?;
         Ok(app)
     }

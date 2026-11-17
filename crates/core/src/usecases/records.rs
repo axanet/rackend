@@ -20,6 +20,7 @@ use crate::domain::record::{
 use crate::domain::{Actor, Collection, Field, Record, RuleOp};
 use crate::error::{FieldError, ValidationErrors};
 use crate::ports::{ReadTx, RecordQuery, Sort, StoreExt, WriteTx};
+use crate::realtime::{Action, RecordChange};
 use crate::rules::eval::RequestValues;
 use crate::rules::{Mode, RuleState, TypedRule, compile};
 use crate::time::format_timestamp;
@@ -80,13 +81,16 @@ pub struct BatchFailure {
     pub error: Error,
 }
 
-fn collection<'a>(compiled: &'a CompiledSchema, key: &str) -> Result<&'a Arc<Collection>> {
+pub(crate) fn collection<'a>(
+    compiled: &'a CompiledSchema,
+    key: &str,
+) -> Result<&'a Arc<Collection>> {
     compiled.schema.by_id_or_name(key).ok_or(Error::NotFound)
 }
 
 /// The rule to apply for `op`, or `None` for superusers / public rules.
 /// Locked rules fail with `Forbidden`.
-fn access<'a>(
+pub(crate) fn access<'a>(
     compiled: &'a CompiledSchema,
     c: &Collection,
     op: RuleOp,
@@ -107,7 +111,7 @@ fn access<'a>(
 }
 
 /// Whether the view rule allows `id` (true for superusers/public).
-fn viewable(
+pub(crate) fn viewable(
     tx: &mut dyn ReadTx,
     compiled: &CompiledSchema,
     c: &Collection,
@@ -155,9 +159,9 @@ fn parse_sort(c: &Collection, sort: Option<&str>) -> Result<Vec<Sort>> {
 
 /// Expand paths as a tree: `a.b,a.c,d` → {a: {b, c}, d}.
 #[derive(Debug, Default)]
-struct ExpandTree(BTreeMap<String, ExpandTree>);
+pub(crate) struct ExpandTree(BTreeMap<String, ExpandTree>);
 
-fn parse_expand(s: Option<&str>) -> Result<ExpandTree> {
+pub(crate) fn parse_expand(s: Option<&str>) -> Result<ExpandTree> {
     let mut root = ExpandTree::default();
     for path in s
         .unwrap_or_default()
@@ -182,7 +186,7 @@ fn parse_expand(s: Option<&str>) -> Result<ExpandTree> {
 /// Record JSON with an `expand` object filled per `tree`. Related records
 /// are subject to their own collection's view rule; non-viewable ones are
 /// omitted (the id stays in the field).
-fn expand(
+pub(crate) fn expand(
     tx: &mut dyn ReadTx,
     compiled: &CompiledSchema,
     c: &Collection,
@@ -437,6 +441,30 @@ struct WriteCtx {
     actor: Actor,
     superuser: bool,
     now: OffsetDateTime,
+    /// Record changes of this transaction, published after commit (the
+    /// realtime outbox, SPEC §13.1).
+    events: std::cell::RefCell<Vec<RecordChange>>,
+}
+
+impl WriteCtx {
+    fn emit(
+        &self,
+        c: &Collection,
+        action: Action,
+        before: Option<&Record>,
+        after: Option<&Record>,
+    ) {
+        self.events.borrow_mut().push(RecordChange {
+            collection_id: c.id,
+            action,
+            before: before.cloned(),
+            after: after.cloned(),
+        });
+    }
+
+    fn take_events(&self) -> Vec<RecordChange> {
+        std::mem::take(&mut *self.events.borrow_mut())
+    }
 }
 
 /// Outcome of a write: the record JSON if the caller may view it.
@@ -636,6 +664,7 @@ fn create_in_tx(
         data: plan.values,
     };
     tx.record_insert(&c, &record)?;
+    w.emit(&c, Action::Create, None, Some(&record));
     let id = record.id.to_string();
     for f in files {
         if f.record_id != id {
@@ -711,6 +740,7 @@ fn update_in_tx(
     for (k, v) in &plan.changes {
         after.data.insert(k.clone(), v.clone());
     }
+    w.emit(&c, Action::Update, Some(&current), Some(&after));
     if c.options.audit_records {
         let mut e = entry(&w.actor, "record.update", w.now);
         e.collection_id = Some(c.id.to_string());
@@ -755,6 +785,7 @@ fn delete_record(
     cause: Option<&str>,
 ) -> Result<Option<String>> {
     tx.record_delete(c, &r.id.to_string())?;
+    w.emit(c, Action::Delete, Some(r), None);
     tx.files_mark_deleted_where(
         &c.id.to_string(),
         Some(&r.id.to_string()),
@@ -847,6 +878,12 @@ fn cascade(
                         let mut changes = Map::new();
                         changes.insert(f.name.clone(), new_value);
                         tx.record_update(src, &r.id.to_string(), &now, &changes)?;
+                        let mut after_rec = r.clone();
+                        after_rec.updated = now.clone();
+                        for (k, v) in &changes {
+                            after_rec.data.insert(k.clone(), v.clone());
+                        }
+                        w.emit(src, Action::Update, Some(&r), Some(&after_rec));
                         if src.options.audit_records {
                             let mut after = r.data.clone();
                             after.extend(changes);
@@ -899,6 +936,7 @@ impl App {
             actor: ctx.actor(),
             superuser: ctx.is_superuser(),
             now: ctx.now,
+            events: std::cell::RefCell::new(Vec::new()),
         }
     }
 
@@ -1120,13 +1158,20 @@ impl App {
                     password_hash: hash.as_deref(),
                     files: &files,
                 };
-                create_in_tx(tx, &w, &key, &body, x)
+                let out = create_in_tx(tx, &w, &key, &body, x)?;
+                Ok((out, w.take_events()))
             })
             .await;
-        if res.is_err() {
-            self.delete_blobs(&keys).await;
+        match res {
+            Ok((out, events)) => {
+                self.hub.publish(events);
+                Ok(out)
+            }
+            Err(e) => {
+                self.delete_blobs(&keys).await;
+                Err(e)
+            }
         }
-        res
     }
 
     /// Checks the password policy and hashes it off the async threads.
@@ -1219,7 +1264,7 @@ impl App {
         let out = self
             .store
             .write(move |tx| {
-                update_in_tx(
+                let out = update_in_tx(
                     tx,
                     &w,
                     &key2,
@@ -1230,11 +1275,15 @@ impl App {
                         password_hash: hash.as_deref(),
                         files: &files,
                     },
-                )
+                )?;
+                Ok((out, w.take_events()))
             })
             .await;
         let out = match out {
-            Ok(o) => o,
+            Ok((o, events)) => {
+                self.hub.publish(events);
+                o
+            }
             Err(e) => {
                 self.delete_blobs(&keys).await;
                 return Err(e);
@@ -1269,9 +1318,14 @@ impl App {
     ) -> Result<()> {
         let w = self.write_ctx(ctx);
         let (key, id) = (key.to_owned(), id.to_owned());
-        self.store
-            .write(move |tx| delete_in_tx(tx, &w, &key, &id, if_match.as_deref()))
+        let events = self
+            .store
+            .write(move |tx| {
+                delete_in_tx(tx, &w, &key, &id, if_match.as_deref())?;
+                Ok(w.take_events())
+            })
             .await?;
+        self.hub.publish(events);
         // Sessions of deleted users (also via cascades) are revoked in the
         // transaction; drop the cache so their tokens fail immediately.
         self.sessions.invalidate_all();
@@ -1315,11 +1369,12 @@ impl App {
                         }
                     }
                 }
-                Ok(results)
+                Ok((results, w.take_events()))
             })
             .await;
         match outcome {
-            Ok(results) => {
+            Ok((results, events)) => {
+                self.hub.publish(events);
                 self.after_file_changes_if_any();
                 Ok(Ok(results))
             }

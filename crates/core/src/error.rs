@@ -154,6 +154,12 @@ pub enum Error {
         /// The limit.
         max_bytes: u64,
     },
+    /// Too many requests or connections.
+    #[error("rate limited")]
+    RateLimited {
+        /// Suggested delay before retrying, in seconds.
+        retry_after_s: u32,
+    },
     /// The action needs configuration that is missing: `public_url` or `smtp`.
     #[error("not configured: {0}")]
     NotConfigured(&'static str),

@@ -225,6 +225,8 @@ pub async fn run(cfg: Config, version: &'static str) -> Result<(), Fatal> {
     // Shutdown: stop accepting, wait for in-flight requests (bounded), drain
     // the writer queues, checkpoint, release the lock.
     tracing::info!("shutting down");
+    // Long-lived realtime streams would hold the graceful shutdown open.
+    app.hub.close_all("shutdown");
     let mut failure = None;
     match server_result {
         Some(Ok(Ok(()))) => {}

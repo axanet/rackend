@@ -5,6 +5,7 @@ pub mod auth;
 pub mod collections;
 pub mod files;
 pub mod input;
+pub mod realtime;
 pub mod records;
 pub mod users;
 

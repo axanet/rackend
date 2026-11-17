@@ -437,6 +437,15 @@ fn run_case(seed: u64) -> usize {
                 serde_json::Value::Object(post.data.clone()),
                 rackend_store_sqlite::rules_sql::compile(&rule, 1).sql
             );
+            // Realtime checks rules against a record's values (SPEC §13.2):
+            // same answer as against the stored row.
+            let by_values =
+                records::matches_values(&conn, &w.posts, post, &rule, &req, Duration::from_secs(5))
+                    .unwrap_or_else(|e| panic!("seed {seed}: values SQL failed for {src}: {e:?}"));
+            assert_eq!(
+                by_values, expected,
+                "seed {seed}: matches_values disagrees\n  rule: {src}"
+            );
             compared += 1;
             if expected {
                 STATS.with(|s| s.borrow_mut().2 += 1);

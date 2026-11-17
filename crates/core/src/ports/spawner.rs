@@ -17,4 +17,7 @@ pub trait Spawner: Send + Sync + std::fmt::Debug {
 
     /// Runs `job` on a thread that may block and returns its result.
     fn run_blocking(&self, job: BlockingJob) -> BoxFuture<'static, AnyBox>;
+
+    /// Completes after `duration` (timers for background loops).
+    fn sleep(&self, duration: std::time::Duration) -> BoxFuture<'static, ()>;
 }

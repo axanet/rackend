@@ -416,6 +416,29 @@ impl ReadTx for SqliteTx<'_> {
         records::matches(self.conn, c, id, rule, req, self.timeout)
     }
 
+    fn record_values_match(
+        &mut self,
+        c: &Collection,
+        record: &Record,
+        rule: &TypedRule,
+        req: &RequestValues,
+    ) -> CoreResult<bool> {
+        records::matches_values(self.conn, c, record, rule, req, self.timeout)
+    }
+
+    fn sessions_live(&mut self, ids: &[String], now: &str) -> CoreResult<Vec<String>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let json = serde_json::to_string(ids).unwrap_or_else(|_| "[]".into());
+        self.collect(
+            "SELECT s.id FROM _sessions s JOIN json_each(?1) j ON j.value = s.id
+             WHERE s.revoked_at IS NULL AND coalesce(s.refresh_expires, s.access_expires) > ?2",
+            params![json, now],
+            |r| r.get(0),
+        )
+    }
+
     fn records_missing(&mut self, c: &Collection, ids: &[String]) -> CoreResult<Vec<String>> {
         records::missing(self.conn, c, ids)
     }

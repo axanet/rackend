@@ -68,6 +68,25 @@ SMTP and S3 passwords, client secrets of external providers and the signing keys
 
 Rate limits and audit entries use the client IP. Without trusted proxies that is the address of the TCP connection, which behind a proxy is the proxy itself. Set `RACKEND_TRUSTED_PROXIES` (or `security.trusted_proxies` in the settings) to the proxy's address or network; rackend then takes the right-most address in `X-Forwarded-For` that is not a trusted proxy. Never trust a network that clients can send from directly, or they can choose their own IP.
 
+Realtime uses long-lived connections. The proxy must pass WebSocket upgrades on `/api/ws` and must not buffer `GET /api/realtime` (Server-Sent Events; rackend sends `X-Accel-Buffering: no` for nginx). Set read timeouts above 60 seconds: rackend sends a heartbeat every 25 seconds. Example for nginx:
+
+```nginx
+location /api/ws {
+    proxy_pass http://rackend:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 120s;
+}
+location / {
+    proxy_pass http://rackend:8080;
+    proxy_http_version 1.1;
+    proxy_read_timeout 120s;
+}
+```
+
+Each realtime connection holds a file descriptor. For many clients raise the limit (`docker run --ulimit nofile=65536:65536 ...`).
+
 ## First start
 
 Without `RACKEND_SUPERUSER_EMAIL`/`_PASSWORD`, rackend logs a one-time link on every start until the first superuser exists:

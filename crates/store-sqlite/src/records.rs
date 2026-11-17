@@ -265,6 +265,43 @@ pub fn matches(
     })
 }
 
+/// Like [`matches`], against a row given by its values: the base table is
+/// replaced by a one-row `SELECT` with the same column names.
+pub fn matches_values(
+    conn: &Connection,
+    c: &Collection,
+    r: &Record,
+    rule: &TypedRule,
+    req: &RequestValues,
+    timeout: Duration,
+) -> Result<bool> {
+    let mut values = vec![
+        SqlValue::Text(r.id.to_string()),
+        SqlValue::Text(r.created.clone()),
+        SqlValue::Text(r.updated.clone()),
+    ];
+    let mut cols = vec![
+        "?1 AS \"id\"".to_owned(),
+        "?2 AS \"created\"".to_owned(),
+        "?3 AS \"updated\"".to_owned(),
+    ];
+    for f in &c.fields {
+        values.push(to_sql(f, r.get(&f.name)));
+        cols.push(format!("?{} AS {}", values.len(), q(&f.name)));
+    }
+    let frag = compile(rule, values.len());
+    values.extend(frag.values(req));
+    let sql = format!(
+        "SELECT EXISTS (SELECT 1 FROM (SELECT {}) t WHERE ({}))",
+        cols.join(", "),
+        frag.sql
+    );
+    with_timeout(conn, timeout, || {
+        conn.prepare_cached(&sql)?
+            .query_row(params_from_iter(values.iter()), |row| row.get::<_, bool>(0))
+    })
+}
+
 pub fn missing(conn: &Connection, c: &Collection, ids: &[String]) -> Result<Vec<String>> {
     if ids.is_empty() {
         return Ok(Vec::new());

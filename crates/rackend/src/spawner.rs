@@ -22,4 +22,8 @@ impl Spawner for TokioSpawner {
             }
         })
     }
+
+    fn sleep(&self, duration: std::time::Duration) -> BoxFuture<'static, ()> {
+        Box::pin(tokio::time::sleep(duration))
+    }
 }

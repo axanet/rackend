@@ -330,6 +330,12 @@ impl From<CoreError> for ApiError {
                 }
                 p.into()
             }
+            CoreError::RateLimited { retry_after_s } => {
+                let mut p = Problem::new(ProblemCode::RateLimited)
+                    .with_detail("Too many requests or connections. Retry later.");
+                p.retry_after_s = Some(retry_after_s);
+                p.into()
+            }
             CoreError::PayloadTooLarge { max_bytes } => {
                 let mut p = Problem::new(ProblemCode::PayloadTooLarge);
                 p.max_bytes = Some(max_bytes);

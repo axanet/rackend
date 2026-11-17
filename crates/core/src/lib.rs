@@ -8,6 +8,7 @@ pub mod auth;
 pub mod domain;
 pub mod error;
 pub mod ports;
+pub mod realtime;
 pub mod rules;
 pub mod secrets;
 pub mod settings;

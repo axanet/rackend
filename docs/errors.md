@@ -124,7 +124,7 @@ Exceptions, where a standard defines its own format, are described under [Protoc
 
 - **Status:** 429
 - **Title:** Too many requests
-- **When:** a rate limit was exceeded.
+- **When:** a rate limit was exceeded, or an IP has too many realtime connections open (`realtime.max_connections_per_ip`).
 - **Extensions:** `retry_after_s`. The `Retry-After` header is set too.
 
 ### smtp_not_configured

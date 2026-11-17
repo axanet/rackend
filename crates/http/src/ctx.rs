@@ -70,7 +70,13 @@ fn check_origin(state: &AppState, parts: &Parts) -> Result<(), ApiError> {
     if matches!(parts.method, Method::GET | Method::HEAD | Method::OPTIONS) {
         return Ok(());
     }
-    let h = &parts.headers;
+    origin_allowed(state, &parts.headers)
+}
+
+/// The `Origin` (or `Referer`) check of [`check_origin`] for any method.
+/// WebSocket upgrades authenticated by cookie need it: browsers send
+/// cookies on cross-site WebSocket requests (SPEC §11.6).
+pub fn origin_allowed(state: &AppState, h: &HeaderMap) -> Result<(), ApiError> {
     let origin = h
         .get(header::ORIGIN)
         .and_then(|v| v.to_str().ok())
@@ -173,6 +179,11 @@ impl FromRequestParts<AppState> for Ctx {
             now: app.clock.now(),
         }))
     }
+}
+
+/// Whether the request carries a bearer token.
+pub fn has_bearer(headers: &HeaderMap) -> bool {
+    bearer(headers).is_some()
 }
 
 /// Whether the client asked for cookie mode.

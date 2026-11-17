@@ -143,6 +143,17 @@ pub trait ReadTx {
         rule: &TypedRule,
         req: &RequestValues,
     ) -> Result<bool>;
+    /// Whether `rule` holds for a record given by its values (not read from
+    /// the table): realtime checks deletes against the record as it was.
+    fn record_values_match(
+        &mut self,
+        c: &Collection,
+        record: &Record,
+        rule: &TypedRule,
+        req: &RequestValues,
+    ) -> Result<bool>;
+    /// Which of `ids` are live sessions at `now` (not revoked, not expired).
+    fn sessions_live(&mut self, ids: &[String], now: &str) -> Result<Vec<String>>;
     /// Which of `ids` do not exist in `c`.
     fn records_missing(&mut self, c: &Collection, ids: &[String]) -> Result<Vec<String>>;
     /// Number of rows whose multi-valued column has more than one value.
