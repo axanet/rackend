@@ -326,7 +326,8 @@ impl App {
         row.credential = serde_json::to_string(&passkey).map_err(Error::internal)?;
         row.last_used = Some(format_timestamp(ctx.now));
         let ctx2 = ctx.clone();
-        self.store
+        let out = self
+            .store
             .write(move |tx| {
                 tx.passkey_update(&row)?;
                 let subject = match &collection {
@@ -340,10 +341,15 @@ impl App {
                 let subject = subject.ok_or(Error::Unauthorized)?;
                 start_session(tx, &subject, &ctx2, "passkey")
             })
-            .await
+            .await;
+        if out.is_ok() {
+            self.observe.counters.login("passkey", true);
+        }
+        out
     }
 
     async fn audit_passkey_failure(&self, ctx: &RequestCtx) -> Result<()> {
+        self.observe.counters.login("passkey", false);
         let ctx = ctx.clone();
         self.store
             .write(move |tx| {

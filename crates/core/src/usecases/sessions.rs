@@ -204,9 +204,12 @@ impl App {
             ));
         }
         let ctx2 = ctx.clone();
-        self.store
+        let t = self
+            .store
             .write(move |tx| start_session(tx, &Subject::superuser(&s), &ctx2, "password"))
-            .await
+            .await?;
+        self.observe.counters.login("password", true);
+        Ok(t)
     }
 
     /// Password login of an auth-collection user (SPEC §10.6).
@@ -253,9 +256,12 @@ impl App {
             ));
         }
         let ctx2 = ctx.clone();
-        self.store
+        let t = self
+            .store
             .write(move |tx| start_session(tx, &Subject::user(&c, &record), &ctx2, "password"))
-            .await
+            .await?;
+        self.observe.counters.login("password", true);
+        Ok(t)
     }
 
     /// Verifies a password off the async threads; a missing hash runs a dummy
@@ -274,6 +280,7 @@ impl App {
 
     /// Failed logins are audited in their own small transaction (SPEC §14.1).
     async fn audit_login_failure(&self, ctx: &RequestCtx, meta: Value) -> Result<()> {
+        self.observe.counters.login("password", false);
         let ctx = ctx.clone();
         self.store
             .write(move |tx| audit_auth(tx, &ctx.actor(), "auth.login.failure", ctx.now, meta))

@@ -30,6 +30,22 @@ serde_json = { workspace = true }
 time = { workspace = true }
 mimalloc = { workspace = true }
 rust-embed = { workspace = true }
+rusqlite = { workspace = true }
+uuid = { workspace = true }
+sha2 = { workspace = true }
+tar = { workspace = true }
+zstd = { workspace = true }
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+opentelemetry = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
+
+[features]
+default = ["otlp"]
+# OTLP export of traces and metrics when RACKEND_OTLP_ENDPOINT is set (SPEC §14.4).
+otlp = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:tracing-opentelemetry"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
 rustix = { workspace = true }

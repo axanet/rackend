@@ -9,6 +9,7 @@ pub mod ctx;
 pub mod files;
 pub mod first_boot;
 pub mod jobs;
+pub mod observe;
 pub mod passkeys;
 pub mod realtime;
 pub mod records;
@@ -22,7 +23,10 @@ use tokio::sync::Semaphore;
 
 use crate::Result;
 use crate::domain::Schema;
-use crate::ports::{BlobStore, BlobStoreFactory, Clock, ImageProcessor, Spawner, Store, StoreExt};
+use crate::ports::{
+    Backups, BlobStore, BlobStoreFactory, Clock, HostMetrics, ImageProcessor, LogsStore, Spawner,
+    Store, StoreExt,
+};
 use crate::secrets::SecretBox;
 use crate::settings::Settings;
 
@@ -63,6 +67,14 @@ pub struct App {
     pub(crate) thumbs: files::Thumbs,
     /// A cleanup of removed files is running.
     pub(crate) file_cleanup_running: std::sync::atomic::AtomicBool,
+    /// The logs database.
+    pub logs: Arc<dyn LogsStore>,
+    /// Host and process metrics.
+    pub host: Arc<dyn HostMetrics>,
+    /// Backup archives.
+    pub backups: Arc<dyn Backups>,
+    /// Request-log buffer, counters, scheduler state.
+    pub observe: observe::ObserveState,
     /// Realtime hub (SPEC §13).
     pub hub: crate::realtime::Hub,
     /// This app, for background tasks spawned from `&self` methods.
@@ -82,6 +94,12 @@ pub struct AppConfig {
     pub blob_factory: Arc<dyn BlobStoreFactory>,
     /// Image processing.
     pub images: Arc<dyn ImageProcessor>,
+    /// The logs database.
+    pub logs: Arc<dyn LogsStore>,
+    /// Host metrics.
+    pub host: Arc<dyn HostMetrics>,
+    /// Backups.
+    pub backups: Arc<dyn Backups>,
 }
 
 impl App {
@@ -112,12 +130,17 @@ impl App {
             images: cfg.images,
             thumbs: files::Thumbs::default(),
             file_cleanup_running: std::sync::atomic::AtomicBool::new(false),
+            logs: cfg.logs,
+            host: cfg.host,
+            backups: cfg.backups,
+            observe: observe::ObserveState::default(),
             hub: crate::realtime::Hub::default(),
             me: me.clone(),
         });
         app.reload_settings().await?;
         app.rebuild_blobs();
         app.realtime_start();
+        app.observe_start();
         app.reload_schema().await?;
         Ok(app)
     }

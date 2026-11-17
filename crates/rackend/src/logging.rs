@@ -28,23 +28,12 @@ pub fn is_redacted(name: &str) -> bool {
     REDACTED.iter().any(|r| lower.contains(r))
 }
 
-/// Installs the global subscriber.
-pub fn init(level: &str, format: LogFormat) -> anyhow::Result<()> {
-    install(level, format, std::io::stdout).map_err(|e| anyhow::anyhow!("logging: {e}"))
-}
-
-fn install<W>(
-    level: &str,
-    format: LogFormat,
-    writer: W,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
-where
-    W: for<'a> MakeWriter<'a> + Send + Sync + 'static,
-{
-    let filter = EnvFilter::try_new(level)?;
-    let sub = subscriber(filter, format, writer);
-    tracing::subscriber::set_global_default(sub)?;
-    Ok(())
+/// Installs the global subscriber. With `otlp`, spans are also exported
+/// to that OpenTelemetry collector (feature `otlp`).
+pub fn init(level: &str, format: LogFormat, otlp: Option<&str>) -> anyhow::Result<()> {
+    let filter = EnvFilter::try_new(level).map_err(|e| anyhow::anyhow!("logging: {e}"))?;
+    let sub = subscriber_with(filter, format, std::io::stdout, otlp);
+    tracing::subscriber::set_global_default(sub).map_err(|e| anyhow::anyhow!("logging: {e}"))
 }
 
 /// The subscriber [`init`] installs, writing to `writer` (tests capture output).
@@ -56,22 +45,49 @@ pub fn subscriber<W>(
 where
     W: for<'a> MakeWriter<'a> + Send + Sync + 'static,
 {
+    subscriber_with(filter, format, writer, None)
+}
+
+#[allow(unused_variables)]
+fn subscriber_with<W>(
+    filter: EnvFilter,
+    format: LogFormat,
+    writer: W,
+    otlp: Option<&str>,
+) -> Box<dyn Subscriber + Send + Sync>
+where
+    W: for<'a> MakeWriter<'a> + Send + Sync + 'static,
+{
+    macro_rules! finish {
+        ($s:expr) => {{
+            let s = $s;
+            #[cfg(feature = "otlp")]
+            if let Some(endpoint) = otlp {
+                use tracing_subscriber::layer::SubscriberExt as _;
+                match crate::otlp::tracing_layer(endpoint) {
+                    Ok(layer) => return Box::new(s.with(layer)),
+                    Err(e) => eprintln!("rackend: {e}; traces are not exported"),
+                }
+            }
+            Box::new(s)
+        }};
+    }
     match format {
-        LogFormat::Json => Box::new(
+        LogFormat::Json => finish!(
             tracing_subscriber::fmt()
                 .with_env_filter(filter)
                 .with_writer(writer)
                 .fmt_fields(JsonFields)
                 .event_format(JsonEvents)
-                .finish(),
+                .finish()
         ),
-        LogFormat::Pretty => Box::new(
+        LogFormat::Pretty => finish!(
             tracing_subscriber::fmt()
                 .with_env_filter(filter)
                 .with_writer(writer)
                 .with_ansi(true)
                 .fmt_fields(PrettyFields)
-                .finish(),
+                .finish()
         ),
     }
 }

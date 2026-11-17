@@ -11,7 +11,7 @@ use rackend_core::ports::{
 use rackend_core::usecases::{App, AppConfig, secrets};
 use rackend_http::{AppState, HttpConfig, HttpOptions};
 use rackend_imaging::Imaging;
-use rackend_store_sqlite::SqliteStore;
+use rackend_store_sqlite::{SqliteLogs, SqliteStore};
 
 use crate::spawner::TokioSpawner;
 use crate::ui_assets::EmbeddedUi;
@@ -53,7 +53,13 @@ pub struct AppOptions {
 /// schema, then the first-boot steps (instance id, default `users`
 /// collection). Signing keys are generated separately
 /// ([`App::ensure_signing_keys`]) because RSA key generation is slow.
-pub async fn app(store: SqliteStore, opts: AppOptions) -> Result<Arc<App>, String> {
+pub async fn app(
+    store: SqliteStore,
+    logs: SqliteLogs,
+    opts: AppOptions,
+) -> Result<Arc<App>, String> {
+    let backups =
+        crate::backup::FsBackups::new(&opts.data_dir, Some(store.db().clone()), opts.version);
     let store: Arc<dyn rackend_core::ports::Store> = Arc::new(store);
     let secrets = secrets::init(
         store.as_ref(),
@@ -76,6 +82,9 @@ pub async fn app(store: SqliteStore, opts: AppOptions) -> Result<Arc<App>, Strin
                 tmp: opts.data_dir.join("tmp"),
             }),
             images: Arc::new(Imaging),
+            logs: Arc::new(logs),
+            host: Arc::new(rackend_host_metrics::Host::new(&opts.data_dir)),
+            backups: Arc::new(backups),
         },
     )
     .await

@@ -184,6 +184,9 @@ fn render(problem: Problem, request_id: &str, res: Response, wants_html: bool) -
     let status = problem.code.status();
     parts.status = status;
     parts.extensions.remove::<Problem>();
+    parts
+        .extensions
+        .insert(crate::access::ProblemTag(problem.code.as_str()));
     parts.headers.remove(header::CONTENT_LENGTH);
 
     if let Some(retry) = problem.retry_after_s {

@@ -54,6 +54,15 @@ impl SqliteStore {
 }
 
 impl Store for SqliteStore {
+    fn stats(&self) -> rackend_core::ports::StoreStats {
+        let (db_size, wal_size) = self.db.file_sizes();
+        rackend_core::ports::StoreStats {
+            write_queue_depth: self.db.queue_depth(),
+            db_size,
+            wal_size,
+        }
+    }
+
     fn set_query_timeout(&self, ms: u64) {
         self.timeout_ms.store(ms.max(1), Ordering::Relaxed);
     }

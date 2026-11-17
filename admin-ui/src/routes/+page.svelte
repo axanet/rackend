@@ -11,7 +11,7 @@
 		get<{ needs_setup: boolean }>('/api/info')
 			.then((info) => {
 				if (info.needs_setup) goto(resolve('/setup') + location.search, { replaceState: true });
-				else goto(resolve(session.user ? '/collections' : '/login'), { replaceState: true });
+				else goto(resolve(session.user ? '/dashboard' : '/login'), { replaceState: true });
 			})
 			.catch((e) => (error = message(e)));
 	});

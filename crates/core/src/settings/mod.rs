@@ -18,7 +18,7 @@ pub fn defaults() -> Value {
         },
         "audit": { "retention_days": 365 },
         "logs": { "retention_days": 7, "min_status": 0, "sample_rate": 1.0 },
-        "metrics": { "retention_days": 7, "prometheus_public": false },
+        "metrics": { "retention_days": 7, "prometheus_public": false, "prometheus_token": null },
         "backups": { "schedule": "0 3 * * *", "keep": 7, "include_storage": true },
         "schema": { "trash_retention_days": 30 },
         "storage": {
@@ -43,7 +43,7 @@ const UNAVAILABLE_SECTIONS: &[&str] = &["smtp", "email_templates"];
 
 /// Settings that are secrets: stored encrypted (`enc:v1:`), shown as
 /// [`MASK`], never in audit diffs (SPEC §15, §17.4).
-pub const SECRET_PATHS: &[&str] = &["storage.s3.secret_access_key"];
+pub const SECRET_PATHS: &[&str] = &["storage.s3.secret_access_key", "metrics.prometheus_token"];
 
 /// How a stored secret is shown. Sending it back unchanged keeps the secret.
 pub const MASK: &str = "\u{2022}\u{2022}\u{2022}\u{2022}";
@@ -318,6 +318,16 @@ fn merge_checked(
 fn check_value(path: &str, v: &Value) -> Result<(), FieldError> {
     let (section, key) = path.split_once('.').unwrap_or((path, ""));
     match (section, key) {
+        ("backups", "schedule")
+            if v.as_str().is_some_and(|s| {
+                !s.trim().is_empty() && crate::domain::cron::Cron::parse(s).is_none()
+            }) =>
+        {
+            Err(FieldError::new(
+                "invalid_schedule",
+                "A cron expression with five fields, e.g. 0 3 * * *, or empty to turn scheduled backups off.",
+            ))
+        }
         ("storage", "backend") if !matches!(v.as_str(), Some("fs" | "s3")) => {
             Err(FieldError::new("invalid_option", "One of fs, s3."))
         }

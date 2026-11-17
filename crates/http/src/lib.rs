@@ -3,6 +3,7 @@
 //! Every response that leaves this adapter with an error status is an RFC
 //! 9457 problem (see [`problem`] and [`middleware::problem_mapper`]).
 
+pub mod access;
 pub mod api;
 pub mod ctx;
 mod health;
@@ -67,6 +68,8 @@ pub struct HttpOptions {
     /// Where uploads are streamed before they are stored (`{data}/tmp`).
     /// Defaults to the system temp directory.
     pub tmp_dir: Option<std::path::PathBuf>,
+    /// Renders `/metrics` (the binary installs the recorder).
+    pub prometheus: Option<metrics_exporter_prometheus::PrometheusHandle>,
 }
 
 impl AppState {
@@ -103,6 +106,11 @@ impl AppState {
             .tmp_dir
             .clone()
             .unwrap_or_else(std::env::temp_dir)
+    }
+
+    /// The Prometheus renderer, when installed.
+    pub fn prometheus(&self) -> Option<&metrics_exporter_prometheus::PrometheusHandle> {
+        self.inner.opts.prometheus.as_ref()
     }
 
     /// `limits.max_json_body_kb` in bytes.
@@ -369,6 +377,18 @@ pub fn routes() -> Vec<RouteSpec> {
             "/api/files/posts/x/a_abcdefgh.png",
         ),
         r(Method::POST, "/api/files/token", "/api/files/token"),
+        r(Method::GET, "/api/metrics/summary", "/api/metrics/summary"),
+        r(Method::GET, "/api/metrics/series", "/api/metrics/series"),
+        r(Method::GET, "/api/logs", "/api/logs"),
+        r(Method::GET, "/api/backups", "/api/backups"),
+        r(Method::POST, "/api/backups", "/api/backups"),
+        r(Method::GET, "/api/backups/{name}", "/api/backups/x.tar.zst"),
+        r(
+            Method::DELETE,
+            "/api/backups/{name}",
+            "/api/backups/x.tar.zst",
+        ),
+        r(Method::GET, "/metrics", "/metrics"),
         r(Method::GET, "/api/realtime", "/api/realtime"),
         r(Method::POST, "/api/realtime", "/api/realtime"),
         r(Method::GET, "/api/ws", "/api/ws"),
@@ -389,7 +409,7 @@ pub fn routes() -> Vec<RouteSpec> {
 
 /// The full application router with all middleware.
 pub fn router(state: AppState, cfg: HttpConfig) -> Router {
-    use api::{admin, auth, collections, files, realtime, records, users};
+    use api::{admin, auth, collections, files, observe, realtime, records, users};
     let app = Router::new()
         .route("/api/health", get(health::health))
         .route("/api/info", get(auth::info))
@@ -487,6 +507,18 @@ pub fn router(state: AppState, cfg: HttpConfig) -> Router {
                 .merge(patch(records::update).layer(DefaultBodyLimit::disable()))
                 .delete(records::delete),
         )
+        .route("/api/metrics/summary", get(observe::summary))
+        .route("/api/metrics/series", get(observe::series))
+        .route("/api/logs", get(observe::logs))
+        .route(
+            "/api/backups",
+            get(observe::backups).post(observe::backup_create),
+        )
+        .route(
+            "/api/backups/{name}",
+            get(observe::backup_download).delete(observe::backup_delete),
+        )
+        .route("/metrics", get(observe::prometheus))
         .route("/api/realtime", get(realtime::sse).post(realtime::bind))
         .route("/api/ws", get(realtime::ws))
         .route("/api/files/token", post(files::token))
@@ -506,13 +538,17 @@ pub fn router(state: AppState, cfg: HttpConfig) -> Router {
         .route("/_", get(ui::redirect_to_ui))
         .route("/_/", get(ui::index))
         .route("/_/{*path}", get(ui::asset))
+        .route_layer(axum::middleware::from_fn(access::tag_route))
         .fallback(not_found)
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             ratelimit::global_limit,
         ))
-        .with_state(state);
-    with_middleware(app, cfg)
+        .with_state(state.clone());
+    with_middleware(app, cfg).layer(axum::middleware::from_fn_with_state(
+        state,
+        access::access_log,
+    ))
 }
 
 /// Applies the standard middleware stack to `app`. Public so tests can check

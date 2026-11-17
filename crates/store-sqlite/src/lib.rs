@@ -10,6 +10,7 @@ pub mod conn;
 pub mod db;
 pub mod ddl;
 mod error;
+pub mod logs;
 pub mod migrate;
 mod open;
 pub mod records;
@@ -19,6 +20,7 @@ pub mod store;
 pub use conn::{DbOptions, Synchronous};
 pub use db::SqliteDb;
 pub use error::Error;
+pub use logs::SqliteLogs;
 pub use open::{DataDbPaths, LogsDb, data_migration_status, open_data_db, open_logs_db};
 pub use store::SqliteStore;
 

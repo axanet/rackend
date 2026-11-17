@@ -30,6 +30,17 @@ pub type ReadJob = Box<dyn FnOnce(&mut dyn ReadTx) -> Result<AnyBox> + Send>;
 /// A job run inside one write transaction. Returning `Err` rolls it back.
 pub type WriteJob = Box<dyn FnOnce(&mut dyn WriteTx) -> Result<AnyBox> + Send>;
 
+/// Writer queue depth and file sizes of the data database.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+pub struct StoreStats {
+    /// Write jobs waiting for the writer thread.
+    pub write_queue_depth: u64,
+    /// `data.db` bytes.
+    pub db_size: u64,
+    /// `data.db-wal` bytes.
+    pub wal_size: u64,
+}
+
 /// One row of `_settings` (SPEC §15).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SettingRow {
@@ -316,6 +327,11 @@ pub trait Store: Send + Sync + std::fmt::Debug + 'static {
     fn write_job(&self, job: WriteJob) -> StoreFuture<'_, AnyBox>;
 
     /// Sets the time limit of rule-produced queries (`limits.rule_timeout_ms`).
+    /// Writer queue depth and database file sizes (dashboard, metrics).
+    fn stats(&self) -> StoreStats {
+        StoreStats::default()
+    }
+
     fn set_query_timeout(&self, _ms: u64) {}
 }
 

@@ -6,6 +6,7 @@ mod common;
 mod error_contract;
 mod files;
 mod flows;
+mod observe;
 mod realtime;
 mod rule_matrix;
 mod secrets;

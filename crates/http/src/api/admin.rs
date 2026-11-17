@@ -58,9 +58,57 @@ pub async fn audit(
         limit: per_page,
         offset: u64::from(page - 1) * u64::from(per_page),
     };
+    if q.get("format").is_some_and(|f| f == "ndjson") {
+        return ndjson(state, ctx, query).await;
+    }
     let (items, total) = state.app().audit_list(&ctx, query).await?;
     Ok(ok(json!({
         "page": page, "per_page": per_page, "total_items": total,
         "total_pages": total.div_ceil(u64::from(per_page)), "items": items,
     })))
+}
+
+/// Streams every matching audit entry as NDJSON, page by page.
+async fn ndjson(
+    state: AppState,
+    ctx: rackend_core::usecases::RequestCtx,
+    mut query: AuditQuery,
+) -> ApiResult {
+    // Fail early (e.g. not a superuser) before the stream starts.
+    query.limit = 1000;
+    query.offset = 0;
+    let (first, _) = state.app().audit_list(&ctx, query.clone()).await?;
+    let stream = futures_util::stream::unfold(
+        (state, ctx, query, Some(first)),
+        |(state, ctx, mut query, page)| async move {
+            let items = match page {
+                Some(p) => p,
+                None => {
+                    query.offset += u64::from(query.limit);
+                    match state.app().audit_list(&ctx, query.clone()).await {
+                        Ok((p, _)) => p,
+                        Err(_) => return None,
+                    }
+                }
+            };
+            if items.is_empty() {
+                return None;
+            }
+            let mut buf = String::new();
+            for e in &items {
+                buf.push_str(&serde_json::to_string(e).unwrap_or_default());
+                buf.push('\n');
+            }
+            Some((
+                Ok::<_, std::io::Error>(bytes::Bytes::from(buf)),
+                (state, ctx, query, None),
+            ))
+        },
+    );
+    let mut res = axum::response::Response::new(axum::body::Body::from_stream(stream));
+    res.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/x-ndjson"),
+    );
+    Ok(res)
 }

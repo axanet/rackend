@@ -38,6 +38,30 @@ enum Command {
         #[command(subcommand)]
         command: MigrateCommand,
     },
+    /// Create, list and restore backups.
+    Backup {
+        #[command(subcommand)]
+        command: BackupCommand,
+    },
+    /// Database integrity, foreign keys and stored files. Read only.
+    Check,
+}
+
+#[derive(Debug, Subcommand)]
+enum BackupCommand {
+    /// Write a backup now (works while the server runs).
+    Create {
+        /// Leave out storage/ (uploaded files).
+        #[arg(long)]
+        no_storage: bool,
+    },
+    /// List backups, newest first.
+    List,
+    /// Restore a backup. The server must be stopped.
+    Restore {
+        /// Archive path, or a name from `backup list`.
+        file: std::path::PathBuf,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -58,6 +82,8 @@ fn main() -> ExitCode {
         Command::Migrate {
             command: MigrateCommand::Status,
         } => migrate_status(),
+        Command::Backup { command } => backup(command),
+        Command::Check => check(),
     };
     ExitCode::from(code)
 }
@@ -74,7 +100,7 @@ fn serve() -> u8 {
         Ok(c) => c,
         Err(code) => return code,
     };
-    if let Err(e) = logging::init(&cfg.log_level, cfg.log_format) {
+    if let Err(e) = logging::init(&cfg.log_level, cfg.log_format, cfg.otlp_endpoint.as_deref()) {
         eprintln!("rackend: {e:#}");
         return exit::FAILURE;
     }
@@ -169,6 +195,162 @@ fn migrate_status() -> u8 {
         Err(e) => {
             eprintln!("rackend migrate status: {e}");
             e.exit_code()
+        }
+    }
+}
+
+fn runtime() -> Result<tokio::runtime::Runtime, u8> {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| {
+            eprintln!("rackend: cannot start the async runtime: {e}");
+            exit::FAILURE
+        })
+}
+
+fn backup(command: BackupCommand) -> u8 {
+    let cfg = match load_config() {
+        Ok(c) => c,
+        Err(code) => return code,
+    };
+    let rt = match runtime() {
+        Ok(rt) => rt,
+        Err(code) => return code,
+    };
+    let backups = rackend::backup::FsBackups::new(&cfg.data_dir, None, VERSION);
+    match command {
+        BackupCommand::Create { no_storage } => {
+            if !cfg.data_dir.join("data.db").is_file() {
+                eprintln!("rackend: no database in {}", cfg.data_dir.display());
+                return exit::FAILURE;
+            }
+            match rt.block_on(backups.create_now(!no_storage)) {
+                Ok(info) => {
+                    println!(
+                        "{} ({} bytes{})",
+                        info.name,
+                        info.size,
+                        if info.includes_storage {
+                            ", with storage/"
+                        } else {
+                            ""
+                        }
+                    );
+                    exit::OK
+                }
+                Err(e) => {
+                    eprintln!("rackend: backup failed: {e}");
+                    exit::FAILURE
+                }
+            }
+        }
+        BackupCommand::List => {
+            use rackend_core::ports::Backups as _;
+            match rt.block_on(backups.list()) {
+                Ok(items) if items.is_empty() => {
+                    println!("No backups in {}.", cfg.data_dir.join("backups").display());
+                    exit::OK
+                }
+                Ok(items) => {
+                    for b in items {
+                        println!(
+                            "{}  {:>12} bytes  {}{}",
+                            b.name,
+                            b.size,
+                            b.created,
+                            if b.includes_storage { "  storage" } else { "" }
+                        );
+                    }
+                    exit::OK
+                }
+                Err(e) => {
+                    eprintln!("rackend: {e}");
+                    exit::FAILURE
+                }
+            }
+        }
+        BackupCommand::Restore { file } => {
+            let archive = if file.is_file() {
+                file
+            } else {
+                cfg.data_dir.join("backups").join(&file)
+            };
+            if !archive.is_file() {
+                eprintln!("rackend: no backup at {}", archive.display());
+                return exit::FAILURE;
+            }
+            // The lock proves the server is stopped (SPEC §18.4).
+            let dir = match rackend::datadir::DataDir::prepare(&cfg.data_dir) {
+                Ok(d) => d,
+                Err(fatal) => {
+                    eprintln!(
+                        "rackend: {} (stop the server before restoring)",
+                        fatal.message
+                    );
+                    return fatal.code;
+                }
+            };
+            let out = rackend::backup::restore(dir.root(), &archive);
+            dir.release();
+            match out {
+                Ok(r) => {
+                    println!("Restored {} files from {}.", r.files, archive.display());
+                    println!("The replaced files are in {}.", r.replaced.display());
+                    println!("Start the server; an older database is migrated on start.");
+                    exit::OK
+                }
+                Err(e) => {
+                    eprintln!("rackend: restore failed, nothing was changed: {e}");
+                    exit::FAILURE
+                }
+            }
+        }
+    }
+}
+
+fn check() -> u8 {
+    let cfg = match load_config() {
+        Ok(c) => c,
+        Err(code) => return code,
+    };
+    let rt = match runtime() {
+        Ok(rt) => rt,
+        Err(code) => return code,
+    };
+    match rt.block_on(rackend::check::run(&cfg.data_dir, cfg.encryption_key)) {
+        Ok(r) => {
+            let line = |label: &str, items: &[String]| {
+                if items.is_empty() {
+                    println!("{label}: ok");
+                } else {
+                    println!(
+                        "{label}: {} problem{}",
+                        items.len(),
+                        if items.len() == 1 { "" } else { "s" }
+                    );
+                    for i in items.iter().take(50) {
+                        println!("  {i}");
+                    }
+                }
+            };
+            line("integrity", &r.integrity);
+            line("foreign keys", &r.foreign_keys);
+            match &r.storage_error {
+                Some(e) => println!("storage: cannot read ({e})"),
+                None => {
+                    line("files without a stored blob", &r.missing_blobs);
+                    println!(
+                        "blobs no record uses: {} (the cleanup job removes them)",
+                        r.orphan_blobs.len()
+                    );
+                }
+            }
+            if r.ok() { exit::OK } else { exit::FAILURE }
+        }
+        Err(e) => {
+            eprintln!("rackend check: {e}");
+            exit::FAILURE
         }
     }
 }

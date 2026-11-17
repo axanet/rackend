@@ -34,7 +34,12 @@
 <a class="skip" href="#main">Skip to content</a>
 <div class="shell">
 	<nav aria-label="Collections">
-		<a class="home" href={resolve('/collections')} aria-label="rackend admin home"><Logo /></a>
+		<a class="home" href={resolve('/dashboard')} aria-label="rackend admin home"><Logo /></a>
+		<div class="pages">
+			{#each [['/dashboard', 'activity', 'Dashboard'], ['/logs', 'list', 'Logs'], ['/audit', 'history', 'Audit']] as const as [href, icon, label] (href)}
+				<a class="settings" href={resolve(href)} aria-current={page.url.pathname.endsWith(href) ? 'page' : undefined}><Icon name={icon} />{label}</a>
+			{/each}
+		</div>
 		<div class="nav-head">
 			<span class="eyebrow">Collections</span>
 			<a class="btn sm icon ghost" href={resolve('/collections/new')} aria-label="New collection" title="New collection"><Icon name="plus" /></a>
@@ -134,6 +139,12 @@
 		padding: 0 12px;
 		color: var(--fg-subtle);
 		font-size: 14px;
+	}
+	.pages {
+		display: grid;
+		gap: 2px;
+		padding-bottom: 12px;
+		border-bottom: 1px solid var(--border);
 	}
 	.settings {
 		display: flex;

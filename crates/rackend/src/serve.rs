@@ -84,6 +84,7 @@ pub async fn run(cfg: Config, version: &'static str) -> Result<(), Fatal> {
     // Step 7: settings, schema cache, compiled rules.
     let app = wiring::app(
         SqliteStore::new(data.clone()),
+        rackend_store_sqlite::SqliteLogs::new(&logs),
         wiring::AppOptions {
             version,
             public_url: cfg.public_url.clone(),
@@ -98,6 +99,18 @@ pub async fn run(cfg: Config, version: &'static str) -> Result<(), Fatal> {
         collections = app.schema.get().schema.all().len(),
         "schema loaded"
     );
+
+    if let Some(endpoint) = &cfg.otlp_endpoint {
+        #[cfg(feature = "otlp")]
+        match crate::otlp::start_metrics(endpoint, &app) {
+            Ok(()) => {
+                tracing::info!(endpoint = %endpoint, "exporting traces and metrics over OTLP")
+            }
+            Err(e) => tracing::warn!(error = %e, "OTLP metrics are not exported"),
+        }
+        #[cfg(not(feature = "otlp"))]
+        tracing::warn!(endpoint = %endpoint, "this build has no OTLP support (feature otlp); RACKEND_OTLP_ENDPOINT is ignored");
+    }
 
     // Step 8: first superuser (SPEC §5.5 step 4). The instance id and the
     // default `users` collection were created while loading.
@@ -186,6 +199,15 @@ pub async fn run(cfg: Config, version: &'static str) -> Result<(), Fatal> {
                 if let Err(e) = app.job_session_gc().await {
                     tracing::warn!(error = %e, "session cleanup failed");
                 }
+                match app.job_logs_retention().await {
+                    Ok((0, 0)) => {}
+                    Ok((r, p)) => tracing::info!(
+                        requests = r,
+                        points = p,
+                        "deleted expired request logs and metric points"
+                    ),
+                    Err(e) => tracing::warn!(error = %e, "log retention failed"),
+                }
             }
         })
     };
@@ -201,6 +223,7 @@ pub async fn run(cfg: Config, version: &'static str) -> Result<(), Fatal> {
             dev: cfg.dev,
             trusted_proxies: cfg.trusted_proxies.clone(),
             tmp_dir: Some(dir.tmp()),
+            prometheus: crate::metrics::recorder(),
         },
     );
     let (stop_tx, stop_rx) = oneshot::channel::<()>();
@@ -243,6 +266,8 @@ pub async fn run(cfg: Config, version: &'static str) -> Result<(), Fatal> {
             }
         }
     }
+    #[cfg(feature = "otlp")]
+    crate::otlp::shutdown();
     keys.abort();
     files_gc.abort();
     optimize.abort();

@@ -11,4 +11,6 @@ workspace = true
 
 [dependencies]
 rackend-core = { workspace = true }
+sysinfo = { workspace = true }
+tracing = { workspace = true }
 

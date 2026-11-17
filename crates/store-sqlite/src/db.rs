@@ -3,7 +3,7 @@
 //! used via `spawn_blocking`.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex};
 
@@ -31,6 +31,7 @@ struct Inner {
     opts: DbOptions,
     writer: SyncSender<WriterMsg>,
     closing: AtomicBool,
+    pending: Arc<AtomicU64>,
     readers: Mutex<Vec<Connection>>,
     reader_permits: Arc<Semaphore>,
 }
@@ -67,6 +68,7 @@ impl SqliteDb {
                 opts,
                 writer: tx,
                 closing: AtomicBool::new(false),
+                pending: Arc::new(AtomicU64::new(0)),
                 readers: Mutex::new(readers),
             }),
         })
@@ -75,6 +77,28 @@ impl SqliteDb {
     /// The database file path.
     pub fn path(&self) -> &Path {
         &self.inner.path
+    }
+
+    /// Write jobs queued or running.
+    pub fn queue_depth(&self) -> u64 {
+        self.inner.pending.load(Ordering::Relaxed)
+    }
+
+    /// Sizes of the database file and its WAL.
+    pub fn file_sizes(&self) -> (u64, u64) {
+        let size = |p: &Path| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+        let mut wal = self.inner.path.as_os_str().to_owned();
+        wal.push("-wal");
+        (size(&self.inner.path), size(Path::new(&wal)))
+    }
+
+    /// Writes a consistent copy of the database to `dest` (`VACUUM INTO`),
+    /// on the writer so no write is half applied.
+    pub async fn snapshot_to(&self, dest: &Path) -> Result<(), Error> {
+        let dest = dest.to_string_lossy().into_owned();
+        self.with_writer(move |conn| conn.execute("VACUUM INTO ?1", [dest]).map(drop))
+            .await?
+            .map_err(Error::from)
     }
 
     /// Runs `f` on the writer connection. Fails fast with [`Error::QueueFull`]
@@ -88,17 +112,39 @@ impl SqliteDb {
             return Err(Error::Closed);
         }
         let (reply_tx, reply_rx) = oneshot::channel();
+        let pending = Arc::clone(&self.inner.pending);
         let job: WriterJob = Box::new(move |conn| {
+            pending.fetch_sub(1, Ordering::Relaxed);
             // The receiver may be gone if the caller was cancelled; the job
             // still ran (and committed or rolled back) as one unit.
             let _ = reply_tx.send(f(conn));
         });
+        self.inner.pending.fetch_add(1, Ordering::Relaxed);
         match self.inner.writer.try_send(WriterMsg::Job(job)) {
             Ok(()) => {}
-            Err(TrySendError::Full(_)) => return Err(Error::QueueFull),
-            Err(TrySendError::Disconnected(_)) => return Err(Error::Closed),
+            Err(TrySendError::Full(_)) => {
+                self.inner.pending.fetch_sub(1, Ordering::Relaxed);
+                return Err(Error::QueueFull);
+            }
+            Err(TrySendError::Disconnected(_)) => {
+                self.inner.pending.fetch_sub(1, Ordering::Relaxed);
+                return Err(Error::Closed);
+            }
         }
-        reply_rx.await.map_err(|_| Error::Closed)
+        tracing::Instrument::instrument(
+            reply_rx,
+            tracing::info_span!("db.write", db = %self.name()),
+        )
+        .await
+        .map_err(|_| Error::Closed)
+    }
+
+    fn name(&self) -> String {
+        self.inner
+            .path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default()
     }
 
     /// Runs `f` on a read-only connection from the pool.
@@ -112,7 +158,9 @@ impl SqliteDb {
             .await
             .map_err(|_| Error::Closed)?;
         let inner = Arc::clone(&self.inner);
+        let span = tracing::info_span!("db.read", db = %self.name());
         let joined = tokio::task::spawn_blocking(move || -> Result<R, Error> {
+            let _span = span.enter();
             let _permit = permit;
             let pooled = lock(&inner.readers).pop();
             let mut conn = match pooled {

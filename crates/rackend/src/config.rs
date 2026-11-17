@@ -35,13 +35,15 @@ pub struct Config {
     pub reset_secrets: bool,
     /// `RACKEND_TRUSTED_PROXIES`: CIDRs whose `X-Forwarded-For` is trusted.
     pub trusted_proxies: Vec<rackend_http::net::Cidr>,
+    /// `RACKEND_OTLP_ENDPOINT`: OpenTelemetry collector base URL.
+    pub otlp_endpoint: Option<String>,
     /// Variables that are recognised but not used by this version yet.
     pub not_yet_supported: Vec<&'static str>,
 }
 
 /// Variables read in later milestones. Setting them now is not an error, but
 /// the operator is told they have no effect yet.
-const FUTURE_VARS: &[&str] = &["RACKEND_OTLP_ENDPOINT"];
+const FUTURE_VARS: &[&str] = &[];
 
 impl Config {
     /// Reads the configuration from the process environment.
@@ -118,6 +120,13 @@ impl Config {
             Some(v) => rackend_http::net::Cidr::parse_list(&v)
                 .map_err(|e| anyhow::anyhow!("RACKEND_TRUSTED_PROXIES: {e}"))?,
         };
+        let otlp_endpoint = match val("RACKEND_OTLP_ENDPOINT") {
+            None => None,
+            Some(u) if u.starts_with("http://") || u.starts_with("https://") => Some(u),
+            Some(u) => bail!(
+                "RACKEND_OTLP_ENDPOINT: expected an http(s) URL such as http://otel-collector:4318, got {u:?}"
+            ),
+        };
         let not_yet_supported = FUTURE_VARS
             .iter()
             .copied()
@@ -135,6 +144,7 @@ impl Config {
             encryption_key,
             reset_secrets,
             trusted_proxies,
+            otlp_endpoint,
             not_yet_supported,
         })
     }
@@ -189,8 +199,10 @@ mod tests {
 
     #[test]
     fn future_vars_are_reported() {
-        let c = cfg(&[("RACKEND_OTLP_ENDPOINT", "http://x")]).unwrap();
-        assert_eq!(c.not_yet_supported, vec!["RACKEND_OTLP_ENDPOINT"]);
+        let c = cfg(&[("RACKEND_OTLP_ENDPOINT", "http://collector:4318")]).unwrap();
+        assert_eq!(c.otlp_endpoint.as_deref(), Some("http://collector:4318"));
+        assert!(c.not_yet_supported.is_empty());
+        assert!(cfg(&[("RACKEND_OTLP_ENDPOINT", "collector:4318")]).is_err());
         assert!(cfg(&[("RACKEND_SUPERUSER_EMAIL", "a@b.c")]).is_err());
         assert!(cfg(&[("RACKEND_PUBLIC_URL", "ftp://x")]).is_err());
         assert!(cfg(&[("RACKEND_ENCRYPTION_KEY", "short")]).is_err());

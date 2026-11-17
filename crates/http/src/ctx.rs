@@ -164,6 +164,13 @@ impl FromRequestParts<AppState> for Ctx {
             .map(|c| c.0.ip());
         let ip = crate::net::client_ip(peer, &parts.headers, &state.trusted_proxies())
             .map(|ip| ip.to_string());
+        if let Some(slot) = parts.extensions.get::<crate::access::ActorSlot>() {
+            match &principal {
+                Principal::Anonymous => slot.set("anonymous", None),
+                Principal::Superuser { id, .. } => slot.set("superuser", Some(id.clone())),
+                Principal::User { id, .. } => slot.set("user", Some(id.clone())),
+            }
+        }
         Ok(Ctx(RequestCtx {
             principal,
             ip,

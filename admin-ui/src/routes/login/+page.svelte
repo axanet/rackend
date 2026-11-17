@@ -21,7 +21,7 @@
 				{ 'X-Rackend-Auth-Mode': 'cookie' }
 			);
 			session.signIn(res.record);
-			await goto(resolve('/collections'), { replaceState: true });
+			await goto(resolve('/dashboard'), { replaceState: true });
 		} catch (err) {
 			error = message(err).startsWith('Missing, invalid') ? 'Wrong email or password.' : message(err);
 		} finally {

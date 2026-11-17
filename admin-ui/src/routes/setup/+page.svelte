@@ -25,7 +25,7 @@
 				{ 'X-Rackend-Auth-Mode': 'cookie' }
 			);
 			session.signIn(res.record);
-			await goto(resolve('/collections'), { replaceState: true });
+			await goto(resolve('/dashboard'), { replaceState: true });
 		} catch (err) {
 			error = err instanceof ApiError ? err : new ApiError(0, { detail: message(err) });
 		} finally {

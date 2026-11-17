@@ -34,6 +34,8 @@ allow = [
   "ISC",
   "MIT-0",
   "CDLA-Permissive-2.0",
+  # ADR 0014: zstd (backups)
+  "BSD-2-Clause",
 ]
 
 [licenses.private]

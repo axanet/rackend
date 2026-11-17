@@ -33,8 +33,16 @@ pub async fn start_empty() -> (Arc<App>, Router, tempfile::TempDir) {
         time::OffsetDateTime::now_utc(),
     )
     .unwrap();
+    let logs = rackend_store_sqlite::open_logs_db(
+        &dir.path().join("logs.db"),
+        DbOptions::logs(Synchronous::Full),
+        "0.0.0-test",
+        time::OffsetDateTime::now_utc(),
+    )
+    .unwrap();
     let app = rackend::wiring::app(
         SqliteStore::new(db),
+        rackend_store_sqlite::SqliteLogs::new(&logs),
         rackend::wiring::AppOptions {
             version: "0.0.0-test",
             data_dir: dir.path().to_path_buf(),

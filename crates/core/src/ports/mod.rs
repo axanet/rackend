@@ -3,6 +3,7 @@
 mod blob;
 mod clock;
 mod id;
+mod observe;
 mod spawner;
 mod store;
 
@@ -12,8 +13,12 @@ pub use blob::{
 };
 pub use clock::{Clock, SystemClock};
 pub use id::{IdGenerator, UuidV7Generator};
+pub use observe::{
+    BackupInfo, Backups, HostMetrics, HostSample, LogsStore, MetricPoint, RequestLog,
+    RequestLogQuery, RequestStats, RouteStat,
+};
 pub use spawner::{BlockingJob, BoxFuture, Spawner};
 pub use store::{
     AnyBox, AuditQuery, ReadJob, ReadTx, RecordPage, RecordQuery, SettingRow, Sort, Store,
-    StoreExt, StoreFuture, WriteJob, WriteTx,
+    StoreExt, StoreFuture, StoreStats, WriteJob, WriteTx,
 };

@@ -65,6 +65,15 @@ image = { version = "0.25", default-features = false, features = ["jpeg", "png",
 fast_image_resize = { version = "6.1", default-features = false }
 webp = { version = "0.3", default-features = false }
 kamadak-exif = "0.6"
+metrics = "0.24"
+metrics-exporter-prometheus = { version = "0.18", default-features = false }
+sysinfo = { version = "0.40", default-features = false, features = ["system", "disk", "network"] }
+tar = { version = "0.4", default-features = false }
+zstd = { version = "0.14", default-features = false }
+opentelemetry = { version = "0.33", default-features = false, features = ["trace", "metrics"] }
+opentelemetry_sdk = { version = "0.33", default-features = false, features = ["trace", "metrics"] }
+opentelemetry-otlp = { version = "0.33", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-blocking-client"] }
+tracing-opentelemetry = { version = "0.34", default-features = false }
 # Stream plumbing for bodies and object storage (ADR 0012)
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 bytes = "1.12"

@@ -54,7 +54,7 @@ Uploaded files go to `storage/` by default. To use an S3-compatible bucket inste
 | `RACKEND_RESET_SECRETS` | `false` | Start even though the stored secrets cannot be decrypted, discarding them; see below |
 | `RACKEND_TRUSTED_PROXIES` | unset | Comma-separated IPs or CIDRs (`10.0.0.0/8, ::1`) whose `X-Forwarded-For` is trusted. Overrides `security.trusted_proxies` |
 
-`RACKEND_OTLP_ENDPOINT` is reserved for an upcoming release; this version logs a warning if it is set.
+| `RACKEND_OTLP_ENDPOINT` | unset | OpenTelemetry collector base URL (`http://otel-collector:4318`): traces and metrics are exported over OTLP/HTTP |
 
 ## Secrets at rest
 
@@ -96,6 +96,33 @@ Open http://localhost:8080/_/setup?token=… to create the first superuser.
 ```
 
 The setup screen also asks for the public URL users reach the instance at.
+
+## Monitoring
+
+- **Dashboard.** The admin UI shows requests, errors, latency, the busiest routes, recent server errors, database and file sizes, realtime connections, and CPU, memory and disk. Inside a container with memory or CPU limits it shows the container's limits, not the host's. It warns when the data directory's disk has less than 10% free.
+- **Request logs.** Every request except health checks and admin UI assets goes to `logs.db`, kept for `logs.retention_days` (default 7). `logs.min_status` keeps only errors, `logs.sample_rate` samples successful requests. Losing `logs.db` loses no data.
+- **Prometheus.** `GET /metrics` is off until you set `metrics.prometheus_token` in the settings (send it as `Authorization: Bearer <token>`) or `metrics.prometheus_public: true`.
+- **OpenTelemetry.** Set `RACKEND_OTLP_ENDPOINT` to export traces (one span per request with database spans below it) and metrics over OTLP/HTTP.
+- **Logs.** rackend logs JSON lines to stdout; every line inside a request carries its `request_id`, also returned as the `X-Request-Id` header.
+
+## Backups
+
+rackend writes backups to `backups/backup-<time>.tar.zst`: a consistent snapshot of `data.db`, the uploaded files in `storage/` (filesystem storage, thumbnails left out) and a manifest with a checksum for every file.
+
+- **Scheduled.** Daily at 03:00 UTC by default (`backups.schedule`, a cron expression; empty turns it off). The newest `backups.keep` archives (default 7) are kept.
+- **On demand.** Settings → Backups in the admin UI, `POST /api/backups`, or `rackend backup create` (works while the server runs).
+- **Off site.** Copy the archives somewhere else, or download them from the admin UI. A backup on the same disk does not survive the disk.
+- **S3 storage.** With S3 the archive holds the database only; turn on bucket versioning to keep older files.
+
+To restore, stop the server and run:
+
+```bash
+rackend backup restore backup-20261117T030000Z.tar.zst
+```
+
+rackend checks every checksum first and changes nothing if the archive is damaged. The current `data.db` and `storage/` are moved to `backups/replaced-<time>/`, never deleted. An older database is migrated when the server starts.
+
+`rackend check` reports database integrity problems and files whose blob is missing. It only reads and is safe next to a running server.
 
 ## Upgrades
 

@@ -2,6 +2,7 @@
 
 pub mod audit;
 pub mod collection;
+pub mod cron;
 pub mod ddl;
 pub mod field;
 pub mod files;
