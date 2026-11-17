@@ -128,7 +128,7 @@
 		<section class="card section">
 			<div class="card-head"><span class="ico"><Icon name="db" /></span><span class="eyebrow">Backend</span></div>
 			<div class="kinds" role="radiogroup" aria-label="Backend">
-				{#each [['fs', 'Filesystem', 'Files live in storage/ inside the data directory. Back it up with the database.'], ['s3', 'S3-compatible', 'AWS S3, Garage, RustFS, MinIO, Cloudflare R2 and others.']] as const as [value, label, text] (value)}
+				{#each [['fs', 'Filesystem', 'Files live in storage/ inside the data directory. Back it up with the database.'], ['s3', 'S3-compatible', 'AWS S3, RustFS, Garage, Cloudflare R2 and others.']] as const as [value, label, text] (value)}
 					<label class="kind-option" class:active={form.backend === value}>
 						<input type="radio" name="backend" {value} aria-label={label} bind:group={form.backend} />
 						<span><strong>{label}</strong><span class="hint">{text}</span></span>
@@ -170,7 +170,7 @@
 					</label>
 				</div>
 				<div class="checks">
-					<label class="inline"><input type="checkbox" bind:checked={form.s3.force_path_style} />Path-style addressing (MinIO, Garage, RustFS)</label>
+					<label class="inline"><input type="checkbox" bind:checked={form.s3.force_path_style} />Path-style addressing (RustFS, Garage)</label>
 					<label class="inline"><input type="checkbox" bind:checked={form.s3.redirect_downloads} />Redirect downloads to signed URLs</label>
 					<label class="inline"><input type="checkbox" bind:checked={form.s3.allow_http} />Allow plain http (development only)</label>
 				</div>

@@ -160,7 +160,7 @@ pub trait BlobStore: Send + Sync + std::fmt::Debug {
 /// S3 connection settings, with the secret decrypted.
 #[derive(Clone, PartialEq, Eq)]
 pub struct S3Config {
-    /// Endpoint URL (`https://s3.eu-central-1.amazonaws.com`, `http://minio:9000`).
+    /// Endpoint URL (`https://s3.eu-central-1.amazonaws.com`, `http://rustfs:9000`).
     pub endpoint: String,
     /// Region.
     pub region: String,
@@ -172,7 +172,7 @@ pub struct S3Config {
     pub access_key_id: String,
     /// Secret access key.
     pub secret_access_key: String,
-    /// Path-style addressing (MinIO, Garage, RustFS).
+    /// Path-style addressing (RustFS, Garage and most self-hosted servers).
     pub force_path_style: bool,
     /// Allow plain http endpoints.
     pub allow_http: bool,

@@ -41,7 +41,7 @@ allow = [
 ]
 
 [licenses.private]
-# Workspace crates are not published; their license is still TBD (SPEC §21).
+# Workspace crates are not published to crates.io; they are Apache-2.0.
 ignore = true
 
 [bans]

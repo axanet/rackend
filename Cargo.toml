@@ -9,7 +9,7 @@ edition = "2024"
 rust-version = "1.99"
 repository = "https://github.com/axanet/rackend"
 publish = false
-# License: TBD (SPEC §21). Decide before the first public release.
+license = "Apache-2.0"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

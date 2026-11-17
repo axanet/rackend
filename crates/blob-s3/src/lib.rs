@@ -1,7 +1,7 @@
 //! `rackend-blob-s3`: the `BlobStore` port on S3-compatible object storage
-//! (SPEC §12.2) via `object_store`. Tested against MinIO and Garage.
+//! (SPEC §12.2) via `object_store`. Tested against RustFS (and Garage).
 //!
-//! Path-style addressing is the default (MinIO, Garage, RustFS). Uploads
+//! Path-style addressing is the default (RustFS, Garage and most self-hosted servers). Uploads
 //! larger than 16 MB use multipart uploads.
 
 use std::sync::Arc;

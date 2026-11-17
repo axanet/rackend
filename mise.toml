@@ -31,7 +31,7 @@ run = "cargo nextest run --workspace"
 run = "cargo nextest run -p rackend-store-sqlite --test upgrade_paths"
 
 [tasks."test:s3"]
-description = "S3 contract tests against MinIO and Garage (requires Docker)"
+description = "S3 contract tests against RustFS; RACKEND_TEST_GARAGE=1 adds Garage (requires Docker)"
 run = "cargo nextest run -p rackend-blob-s3 --features contract-tests"
 
 [tasks."test:broker"]

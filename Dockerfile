@@ -28,7 +28,13 @@ RUN mkdir -p /data-skel && chown 10001:10001 /data-skel
 
 # --- Runtime ---
 FROM scratch
+LABEL org.opencontainers.image.title="rackend" \
+      org.opencontainers.image.description="Self-hosted, single-binary backend: database, REST API, auth, files, realtime." \
+      org.opencontainers.image.source="https://github.com/axanet/rackend" \
+      org.opencontainers.image.vendor="axanet GmbH" \
+      org.opencontainers.image.licenses="Apache-2.0"
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY LICENSE NOTICE /licenses/
 COPY --from=build /rackend /rackend
 COPY --from=build --chown=10001:10001 /data-skel /data
 USER 10001:10001

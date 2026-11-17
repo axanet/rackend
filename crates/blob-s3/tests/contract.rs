@@ -1,9 +1,10 @@
 //! S3 contract tests (SPEC §12.2): the blob contract against real
 //! S3-compatible servers in Docker. Run with `mise run test:s3`.
 //!
-//! - Garage (`dxflrs/garage`) and RustFS (`rustfs/rustfs`) always run.
-//! - MinIO no longer publishes anonymous images; set
-//!   `RACKEND_TEST_MINIO_IMAGE=<repo:tag>` to include an image you can pull.
+//! - RustFS (`rustfs/rustfs`), the reference self-hosted server, always runs.
+//! - Garage (`dxflrs/garage`) runs too with `RACKEND_TEST_GARAGE=1`.
+//! - MinIO is not tested: it is no longer maintained as open source and
+//!   publishes no images that can be pulled anonymously.
 #![cfg(feature = "contract-tests")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -129,7 +130,11 @@ async fn exec_ok(c: &ContainerAsync<GenericImage>, cmd: &[&str]) -> String {
 }
 
 #[tokio::test]
-async fn garage() {
+async fn garage_if_enabled() {
+    if std::env::var("RACKEND_TEST_GARAGE").is_err() {
+        eprintln!("skipped: set RACKEND_TEST_GARAGE=1 to also test Garage");
+        return;
+    }
     let config = r#"
 metadata_dir = "/var/lib/garage/meta"
 data_dir = "/var/lib/garage/data"
@@ -216,32 +221,6 @@ async fn rustfs() {
         .with_wait_for(WaitFor::seconds(1))
         .with_env_var("RUSTFS_ACCESS_KEY", ak)
         .with_env_var("RUSTFS_SECRET_KEY", sk)
-        .start()
-        .await
-        .unwrap();
-    let endpoint = format!(
-        "http://127.0.0.1:{}",
-        c.get_host_port_ipv4(9000).await.unwrap()
-    );
-    wait_http(&endpoint).await;
-    create_bucket(&endpoint, "us-east-1", ak, sk).await;
-    check(&endpoint, "us-east-1", ak, sk).await;
-}
-
-#[tokio::test]
-async fn minio_if_available() {
-    let Ok(image) = std::env::var("RACKEND_TEST_MINIO_IMAGE") else {
-        eprintln!("skipped: set RACKEND_TEST_MINIO_IMAGE=<repo:tag> to test MinIO");
-        return;
-    };
-    let (name, tag) = image.rsplit_once(':').unwrap_or((&image, "latest"));
-    let (ak, sk) = ("rackendtest", "rackendtestsecret");
-    let c = GenericImage::new(name, tag)
-        .with_exposed_port(9000.tcp())
-        .with_wait_for(WaitFor::seconds(1))
-        .with_env_var("MINIO_ROOT_USER", ak)
-        .with_env_var("MINIO_ROOT_PASSWORD", sk)
-        .with_cmd(["server", "/data"])
         .start()
         .await
         .unwrap();

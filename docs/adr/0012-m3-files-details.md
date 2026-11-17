@@ -57,6 +57,7 @@ M3 adds the `file` field, uploads, serving, thumbnails and S3 storage. The spec 
 ### S3 contract tests
 
 - The spec asks for MinIO and Garage. MinIO no longer publishes images that can be pulled anonymously (Docker Hub denies the pull, quay.io asks for a login), so the suite runs against **Garage and RustFS 1.0**, and against MinIO when `RACKEND_TEST_MINIO_IMAGE` names an image the machine can pull. The same contract runs against the filesystem backend in the default test run.
+- Update (M7, owner decision): RustFS is the reference S3 server for the contract tests; Garage runs with `RACKEND_TEST_GARAGE=1`; MinIO is no longer tested (no longer maintained as open source).
 
 ## Consequences
 

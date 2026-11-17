@@ -30,8 +30,15 @@ mise run lint         # fmt, clippy -D warnings, cargo-deny, migration immutabil
 
 Layout: `crates/core` (domain, use cases, ports; no I/O), adapter crates (`store-sqlite`, `http`, `blob-*`, …), `crates/rackend` (binary and composition root), `admin-ui` (SvelteKit). Architecture decisions are recorded in [docs/adr](docs/adr); error responses are documented in [docs/errors.md](docs/errors.md).
 
+## Contributing
+
+Issues are welcome; pull requests from outside the axanet organization are closed automatically. See [CONTRIBUTING.md](CONTRIBUTING.md) and, for vulnerabilities, [SECURITY.md](SECURITY.md).
+
 ## License
 
-To be decided before the first public release.
+Apache License 2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE). Bundled third-party material keeps its own license:
 
-The admin UI bundles the Redaction 20 font by MCKL and the Geist fonts by Vercel, all under the SIL Open Font License 1.1. Their license texts ship with the UI in [admin-ui/static/licenses](admin-ui/static/licenses) (served at `/_/licenses/`); the font files are used unmodified.
+- The admin UI bundles the Redaction 20 font by MCKL and the Geist fonts by Vercel, all under the SIL Open Font License 1.1. Their license texts ship with the UI in [admin-ui/static/licenses](admin-ui/static/licenses) (served at `/_/licenses/`); the font files are used unmodified.
+- The list of common passwords comes from SecLists by Daniel Miessler, under the MIT License ([crates/core/data/common-passwords.LICENSE](crates/core/data/common-passwords.LICENSE)).
+
+The container image carries LICENSE and NOTICE in `/licenses/`.

@@ -1,0 +1,22 @@
+rackend
+Copyright 2026 axanet GmbH
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+It bundles the following third-party material, which is not covered by the
+Apache License and keeps its own license:
+
+  Redaction 20, Copyright 2019 MCKL Inc.
+  Geist and Geist Mono, Copyright 2024 The Geist Project Authors
+    Fonts of the admin UI, licensed under the SIL Open Font License,
+    Version 1.1. License texts: admin-ui/static/licenses/ (served at
+    /_/licenses/).
+
+  Common password list, Copyright (c) 2018 Daniel Miessler (SecLists)
+    The 10,000 most common passwords, licensed under the MIT License.
+    License text: crates/core/data/common-passwords.LICENSE.
+
+The rackend binary is built from Rust crates and the admin UI from npm
+packages published by third parties under their own licenses (MIT,
+Apache-2.0, BSD and similar permissive licenses; the allowed set is listed
+in deny.toml).
