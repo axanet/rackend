@@ -13,6 +13,7 @@ pub mod first_boot;
 pub mod jobs;
 pub mod mail;
 pub mod observe;
+pub mod openapi;
 pub mod passkeys;
 pub mod realtime;
 pub mod records;

@@ -7,6 +7,7 @@ pub mod collections;
 pub mod files;
 pub mod input;
 pub mod observe;
+pub mod openapi;
 pub mod realtime;
 pub mod records;
 pub mod users;

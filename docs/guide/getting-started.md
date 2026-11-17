@@ -1,0 +1,103 @@
+# Getting started
+
+This guide starts rackend, creates a collection with access rules, writes and reads records over the API, and downloads the OpenAPI document. It takes about five minutes.
+
+You need Docker, `curl` and `jq`. Every command below runs as is in a terminal; CI runs this page on a clean machine (`scripts/getting-started.sh`).
+
+## 1. Start rackend
+
+```bash
+docker run -d --name rackend -p 8080:8080 -v rackend_data:/data \
+  -e RACKEND_SUPERUSER_EMAIL=admin@example.com \
+  -e RACKEND_SUPERUSER_PASSWORD='a long admin password' \
+  ghcr.io/axanet/rackend:0.1
+```
+
+The two variables create the first superuser, so this guide needs no browser. Without them, rackend prints a one-time setup link in its log (`docker logs rackend`); open it to create the superuser in the admin UI.
+
+Wait until it answers:
+
+```bash
+until curl -fs http://localhost:8080/api/health; do sleep 1; done; echo
+```
+
+The admin UI is at <http://localhost:8080/_/>. Sign in with the email and password above.
+
+## 2. Sign in to the API
+
+Superusers sign in like users and get an access token:
+
+```bash
+TOKEN=$(curl -fsS http://localhost:8080/api/superusers/auth-with-password \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@example.com","password":"a long admin password"}' | jq -r .access_token)
+```
+
+## 3. Create a collection
+
+A collection is a table with typed fields and access rules. This one is readable by anyone, but only its published records:
+
+```bash
+curl -fsS http://localhost:8080/api/collections \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{
+    "name": "posts",
+    "fields": [
+      {"name": "title", "type": "text", "required": true},
+      {"name": "published", "type": "bool"}
+    ],
+    "rules": {"list": "published = true", "view": "published = true"}
+  }' | jq .name
+```
+
+Rules without a value (here `create`, `update` and `delete`) are locked: only superusers may do that. An empty rule (`""`) allows everyone. See the [rules guide](rules.md).
+
+## 4. Write and read records
+
+As the superuser, add one published and one draft post:
+
+```bash
+for post in '{"title":"Hello, rackend","published":true}' '{"title":"A draft","published":false}'; do
+  curl -fsS http://localhost:8080/api/collections/posts/records \
+    -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+    -d "$post" | jq -c '{id, title}'
+done
+```
+
+Without a token, the list rule applies, so only the published post comes back:
+
+```bash
+curl -fsS 'http://localhost:8080/api/collections/posts/records?sort=-created' | jq -c '.items[] | {title}'
+```
+
+Filters use the same language as rules:
+
+```bash
+curl -fsS -G http://localhost:8080/api/collections/posts/records \
+  -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode "filter=title ~ 'draft'" | jq '.total_items'
+```
+
+## 5. Generate a client
+
+rackend describes its API, including your collections, as an OpenAPI document:
+
+```bash
+curl -fsS http://localhost:8080/api/openapi.json -H "Authorization: Bearer $TOKEN" -o openapi.json
+jq -r '.paths | keys[]' openapi.json | grep posts
+```
+
+Feed it to a generator to get a typed client for your language: see [Generating a client](clients.md).
+
+## 6. Clean up
+
+```bash
+docker rm -f rackend
+docker volume rm rackend_data
+```
+
+## Next
+
+- [Deploying rackend](../deployment.md): reverse proxies, backups, upgrades, monitoring.
+- [Rules](rules.md): who may see and change what.
+- [Realtime](../realtime-protocol.md): live updates over SSE or WebSocket.

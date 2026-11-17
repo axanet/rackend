@@ -36,7 +36,7 @@
 	<nav aria-label="Collections">
 		<a class="home" href={resolve('/dashboard')} aria-label="rackend admin home"><Logo /></a>
 		<div class="pages">
-			{#each [['/dashboard', 'activity', 'Dashboard'], ['/logs', 'list', 'Logs'], ['/audit', 'history', 'Audit']] as const as [href, icon, label] (href)}
+			{#each [['/dashboard', 'activity', 'Dashboard'], ['/logs', 'list', 'Logs'], ['/audit', 'history', 'Audit'], ['/api', 'code', 'API']] as const as [href, icon, label] (href)}
 				<a class="settings" href={resolve(href)} aria-current={page.url.pathname.endsWith(href) ? 'page' : undefined}><Icon name={icon} />{label}</a>
 			{/each}
 		</div>

@@ -38,6 +38,10 @@ run = "cargo nextest run -p rackend-blob-s3 --features contract-tests"
 description = "Broker contract test against Keycloak (requires Docker)"
 run = "cargo nextest run -p rackend --test api --features keycloak-tests keycloak"
 
+[tasks."test:clients"]
+description = "OpenAPI documents validate; generated TypeScript and Python clients pass a smoke test (Docker, python3, bun)"
+run = "cargo build -p rackend && scripts/openapi-clients.sh"
+
 [tasks.lint]
 run = [
   "cargo fmt --all --check",

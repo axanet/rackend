@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shared CI entry point for GitHub Actions and Forgejo Actions (SPEC §19).
-# Usage: scripts/ci.sh <lint|test|upgrade|docker-smoke IMAGE>
+# Usage: scripts/ci.sh <lint|test|upgrade|clients|docker-smoke IMAGE>
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
@@ -13,6 +13,9 @@ case "${1:-}" in
     ;;
   upgrade)
     mise run test:upgrade
+    ;;
+  clients)
+    mise run test:clients
     ;;
   docker-smoke)
     image="${2:?image required}"
@@ -43,6 +46,7 @@ case "${1:-}" in
     curl -fsS -H 'content-type: application/json' -d '{"note":"hello"}' \
       http://127.0.0.1:18080/api/collections/smoke/records >/dev/null
     curl -fsS http://127.0.0.1:18080/api/collections/smoke/records | grep -q '"note":"hello"'
+    curl -fsS -H "authorization: Bearer $token" http://127.0.0.1:18080/api/openapi.json | grep -q '"smoke_list"'
 
     # A second container on the same volume must refuse to start (exit 75).
     set +e
@@ -58,7 +62,7 @@ case "${1:-}" in
     echo "docker smoke test passed"
     ;;
   *)
-    echo "usage: $0 <lint|test|upgrade|docker-smoke IMAGE>" >&2
+    echo "usage: $0 <lint|test|upgrade|clients|docker-smoke IMAGE>" >&2
     exit 2
     ;;
 esac

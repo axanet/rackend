@@ -2,7 +2,7 @@
 
 A self-hosted, single-binary backend-as-a-service written in Rust, inspired by PocketBase: one binary (or one container) gives you a database with an admin UI, a REST API with access rules, authentication (including an OIDC provider), file storage, realtime and observability. SQLite is the only database.
 
-> Status: early development (milestones M0 and M1: data safety, collections, records, access rules, audit trail, superusers, minimal admin UI).
+> Status: early development. Done: data safety, collections and access rules, auth (passwords, passkeys, email flows, external providers), files, realtime records, observability and backups, OpenAPI and client generation (milestones M0 to M7). Next: the OIDC provider (M8), then channels, presence and collaborative editing (M9).
 
 ## Run
 
@@ -11,7 +11,7 @@ docker run -d -v rackend_data:/data -p 8080:8080 ghcr.io/axanet/rackend:0.1
 curl localhost:8080/api/health
 ```
 
-See [docs/deployment.md](docs/deployment.md).
+Start with the [getting started guide](docs/guide/getting-started.md); all guides are in [docs/guide](docs/guide/README.md), deployment in [docs/deployment.md](docs/deployment.md).
 
 ## Develop
 
@@ -23,6 +23,8 @@ mise run build        # admin UI + release binary
 mise run dev          # run the server (data in ./.data)
 mise run test         # all tests
 mise run test:upgrade # upgrade-path tests against committed fixtures
+mise run test:clients # OpenAPI validation + generated TypeScript/Python clients (Docker, python3)
+mise run test:broker  # sign-in against Keycloak (Docker)
 mise run lint         # fmt, clippy -D warnings, cargo-deny, migration immutability
 ```
 

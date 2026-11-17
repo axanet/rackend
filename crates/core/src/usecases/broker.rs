@@ -40,7 +40,7 @@ pub fn presets() -> Value {
 pub struct ProviderCache(RwLock<Arc<Vec<ProviderRow>>>);
 
 impl ProviderCache {
-    fn get(&self) -> Arc<Vec<ProviderRow>> {
+    pub(crate) fn get(&self) -> Arc<Vec<ProviderRow>> {
         self.0
             .read()
             .map_or_else(|p| Arc::clone(&p.into_inner()), |g| Arc::clone(&g))

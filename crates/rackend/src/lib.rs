@@ -9,6 +9,7 @@ pub mod exit;
 pub mod healthcheck;
 pub mod logging;
 pub mod metrics;
+pub mod openapi_export;
 #[cfg(feature = "otlp")]
 pub mod otlp;
 pub mod serve;

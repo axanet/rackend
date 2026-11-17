@@ -45,6 +45,28 @@ enum Command {
     },
     /// Database integrity, foreign keys and stored files. Read only.
     Check,
+    /// The OpenAPI document of this instance.
+    Openapi {
+        #[command(subcommand)]
+        command: OpenapiCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum OpenapiCommand {
+    /// Write the document to stdout. Opens the database read only, so it
+    /// also works while the server runs.
+    Export {
+        /// OpenAPI version: 3.1 or 3.0.
+        #[arg(long, default_value = "3.1")]
+        version: String,
+        /// Include superuser and admin endpoints.
+        #[arg(long)]
+        include_admin: bool,
+        /// json or yaml.
+        #[arg(long, default_value = "json")]
+        format: String,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -84,8 +106,53 @@ fn main() -> ExitCode {
         } => migrate_status(),
         Command::Backup { command } => backup(command),
         Command::Check => check(),
+        Command::Openapi {
+            command:
+                OpenapiCommand::Export {
+                    version,
+                    include_admin,
+                    format,
+                },
+        } => openapi_export(&version, include_admin, &format),
     };
     ExitCode::from(code)
+}
+
+fn openapi_export(version: &str, include_admin: bool, format: &str) -> u8 {
+    use rackend::openapi_export::{Format, Options, export};
+    let cfg = match load_config() {
+        Ok(c) => c,
+        Err(code) => return code,
+    };
+    let Some(version) = rackend_core::openapi::Version::parse(version) else {
+        eprintln!("rackend openapi export: --version must be 3.1 or 3.0");
+        return exit::FAILURE;
+    };
+    let format = match format {
+        "json" => Format::Json,
+        "yaml" | "yml" => Format::Yaml,
+        _ => {
+            eprintln!("rackend openapi export: --format must be json or yaml");
+            return exit::FAILURE;
+        }
+    };
+    let opts = Options {
+        version,
+        include_admin,
+        format,
+        public_url: cfg.public_url.clone(),
+        app_version: VERSION.to_owned(),
+    };
+    match export(&cfg.data_dir, &opts) {
+        Ok(text) => {
+            print!("{text}");
+            exit::OK
+        }
+        Err(e) => {
+            eprintln!("rackend openapi export: {e}");
+            exit::FAILURE
+        }
+    }
 }
 
 fn load_config() -> Result<Config, u8> {

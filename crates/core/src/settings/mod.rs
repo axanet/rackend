@@ -17,6 +17,7 @@ pub fn defaults() -> Value {
             "rate_limits": { "global_ip_per_min": 600, "login_ip_per_min": 20, "login_account_per_15min": 10, "email_ip_per_10min": 5, "email_address_per_hour": 3 }
         },
         "audit": { "retention_days": 365 },
+        "api": { "openapi_public": false },
         "logs": { "retention_days": 7, "min_status": 0, "sample_rate": 1.0 },
         "metrics": { "retention_days": 7, "prometheus_public": false, "prometheus_token": null },
         "backups": { "schedule": "0 3 * * *", "keep": 7, "include_storage": true },
@@ -204,6 +205,13 @@ impl Settings {
     pub fn int(&self, section: &str, key: &str, default: i64) -> i64 {
         self.get(section, key)
             .and_then(Value::as_i64)
+            .unwrap_or(default)
+    }
+
+    /// A boolean setting.
+    pub fn bool(&self, section: &str, key: &str, default: bool) -> bool {
+        self.get(section, key)
+            .and_then(Value::as_bool)
             .unwrap_or(default)
     }
 

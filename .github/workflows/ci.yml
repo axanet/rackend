@@ -55,3 +55,18 @@ jobs:
       - name: image size (compressed budget 40 MB, SPEC §2)
         run: docker save rackend:ci | gzip | wc -c | awk '{ printf "%.1f MB\n", $1/1048576; if ($1 > 40*1048576) exit 1 }'
       - run: scripts/ci.sh docker-smoke rackend:ci
+      - name: getting started guide, verbatim (SPEC §20 M7)
+        if: matrix.platform == 'linux/amd64'
+        run: |
+          docker tag rackend:ci "$(grep -oE 'ghcr\.io/axanet/rackend:[0-9.]+' docs/guide/getting-started.md | head -1)"
+          scripts/getting-started.sh
+
+  clients:
+    # OpenAPI documents validate; generated TypeScript and Python clients
+    # compile and pass a smoke test against a running server (SPEC §20 M7).
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: jdx/mise-action@v3
+      - uses: Swatinem/rust-cache@v2
+      - run: scripts/ci.sh clients

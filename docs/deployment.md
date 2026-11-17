@@ -121,6 +121,10 @@ Settings → Sign-in providers adds OpenID Connect providers (presets for Google
 
 Signed-in users add a provider to their account with `&link=true` on the start URL.
 
+## API document
+
+`GET /api/openapi.json` describes the API of your collections for client generators (see [Generating a client](guide/clients.md)). It is for superusers until you set `api.openapi_public: true`; the public document leaves out operations only superusers may call. `rackend openapi export` prints it from the command line, also while the server runs.
+
 ## Monitoring
 
 - **Dashboard.** The admin UI shows requests, errors, latency, the busiest routes, recent server errors, database and file sizes, realtime connections, and CPU, memory and disk. Inside a container with memory or CPU limits it shows the container's limits, not the host's. It warns when the data directory's disk has less than 10% free.

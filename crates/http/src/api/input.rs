@@ -145,7 +145,26 @@ async fn multipart(
                         body.insert(k, v);
                     }
                 } else if !name.is_empty() {
-                    body.insert(name, Value::String(text));
+                    let compiled = state.app().schema.get();
+                    let c = compiled.schema.by_id_or_name(key);
+                    let value = coerce(c.map(AsRef::as_ref), &name, text);
+                    let multi = c
+                        .and_then(|c| c.field(field_name(&name)))
+                        .is_some_and(|f| f.is_multi());
+                    match body.get_mut(&name) {
+                        // Repeated parts of a multi-value field form an array.
+                        Some(Value::Array(a)) if multi => match value {
+                            Value::Array(more) => a.extend(more),
+                            v => a.push(v),
+                        },
+                        Some(prev) if multi => {
+                            let first = prev.take();
+                            *prev = Value::Array(vec![first, value]);
+                        }
+                        _ => {
+                            body.insert(name, value);
+                        }
+                    }
                 }
             }
             Some(original) => {
@@ -171,6 +190,49 @@ async fn multipart(
         uploads,
         tmp: Some(tmp),
     })
+}
+
+/// The field a body key refers to (`tags+`, `+tags`, `views-` → the name).
+fn field_name(key: &str) -> &str {
+    key.trim_start_matches('+').trim_end_matches(['+', '-'])
+}
+
+/// Types a text part by its field, so form clients can send numbers,
+/// booleans and JSON as text (`"42"`, `"true"`, `"[1,2]"`).
+fn coerce(c: Option<&rackend_core::domain::Collection>, name: &str, text: String) -> Value {
+    use rackend_core::domain::FieldKind;
+    let Some(f) = c.and_then(|c| c.field(field_name(name))) else {
+        return Value::String(text);
+    };
+    let t = text.trim();
+    match &f.kind {
+        FieldKind::Number { .. } if t.is_empty() => Value::Null,
+        FieldKind::Number { .. } => t
+            .parse::<i64>()
+            .map(Value::from)
+            .ok()
+            .or_else(|| {
+                t.parse::<f64>()
+                    .ok()
+                    .and_then(serde_json::Number::from_f64)
+                    .map(Value::Number)
+            })
+            .unwrap_or(Value::String(text)),
+        FieldKind::Bool => match t.to_ascii_lowercase().as_str() {
+            "true" | "1" | "on" => Value::Bool(true),
+            "false" | "0" | "" => Value::Bool(false),
+            _ => Value::String(text),
+        },
+        FieldKind::Json { .. } => serde_json::from_str(t).unwrap_or(Value::String(text)),
+        _ if f.is_multi() && t.starts_with('[') => {
+            serde_json::from_str(t).unwrap_or(Value::String(text))
+        }
+        // One part of a multi-value field is a one-element list.
+        FieldKind::Select { .. } | FieldKind::Relation { .. } if f.is_multi() => {
+            Value::Array(vec![Value::String(text)])
+        }
+        _ => Value::String(text),
+    }
 }
 
 async fn read_text(

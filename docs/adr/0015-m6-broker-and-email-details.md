@@ -47,7 +47,7 @@ M6 adds SMTP email with editable templates, email verification, password reset, 
 
 ### Sign-in flow
 
-- `GET /api/collections/{c}/providers/{name}/start?redirect_uri=…[&link=true][&format=json]` sets an encrypted, HttpOnly, `SameSite=Lax` cookie scoped to the callback path for 10 minutes (state, PKCE verifier, nonce, provider, collection, redirect URI, the user to link) and redirects, or answers `{url}` with `format=json`. `redirect_uri` is required: the hosted login page of the OIDC provider (M7) is the only flow without one.
+- `GET /api/collections/{c}/providers/{name}/start?redirect_uri=…[&link=true][&format=json]` sets an encrypted, HttpOnly, `SameSite=Lax` cookie scoped to the callback path for 10 minutes (state, PKCE verifier, nonce, provider, collection, redirect URI, the user to link) and redirects, or answers `{url}` with `format=json`. `redirect_uri` is required: the hosted login page of the OIDC provider (M8) is the only flow without one.
 - The callback always ends at `redirect_uri#code=…` or `redirect_uri#error=<code>`. Without a valid state cookie there is nowhere safe to return to, so it shows an error page. Error codes: `invalid_state`, `access_denied`, `provider_error`, `account_not_found`, `email_in_use`, `identity_in_use`, `server_error`.
 - Exchange codes are `_verification_tokens` rows (purpose `exchange`, 60 s, single use). They carry the user, not tokens; the session starts when the code is exchanged.
 

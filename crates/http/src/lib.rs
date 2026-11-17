@@ -503,6 +503,8 @@ pub fn routes() -> Vec<RouteSpec> {
         r(Method::POST, "/auth/reset", "/auth/reset"),
         r(Method::GET, "/auth/email-change", "/auth/email-change"),
         r(Method::POST, "/auth/email-change", "/auth/email-change"),
+        r(Method::GET, "/api/openapi.json", "/api/openapi.json"),
+        r(Method::GET, "/api/openapi.yaml", "/api/openapi.yaml"),
         r(Method::GET, "/api/settings", "/api/settings"),
         r(Method::PATCH, "/api/settings", "/api/settings"),
         r(Method::GET, "/api/audit", "/api/audit"),
@@ -514,10 +516,14 @@ pub fn routes() -> Vec<RouteSpec> {
 
 /// The full application router with all middleware.
 pub fn router(state: AppState, cfg: HttpConfig) -> Router {
-    use api::{admin, auth, broker, collections, files, observe, realtime, records, users};
+    use api::{
+        admin, auth, broker, collections, files, observe, openapi, realtime, records, users,
+    };
     let app = Router::new()
         .route("/api/health", get(health::health))
         .route("/api/info", get(auth::info))
+        .route("/api/openapi.json", get(openapi::json))
+        .route("/api/openapi.yaml", get(openapi::yaml))
         .route("/api/setup", post(auth::setup))
         .route("/api/superusers/auth-with-password", post(auth::login))
         .route("/api/superusers/auth-refresh", post(auth::refresh))

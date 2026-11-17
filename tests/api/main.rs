@@ -4,6 +4,7 @@
 mod audit_fault;
 mod broker;
 mod common;
+mod docs_examples;
 mod email_auth;
 mod error_contract;
 mod files;
@@ -12,6 +13,7 @@ mod flows;
 mod keycloak;
 mod mock_idp;
 mod observe;
+mod openapi;
 mod realtime;
 mod rule_matrix;
 mod secrets;
