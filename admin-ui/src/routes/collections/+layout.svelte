@@ -42,7 +42,7 @@
 			{#each session.collections as c (c.id)}
 				<li>
 					<a href={resolve('/collections/[name]', { name: c.name })} aria-current={current === c.name ? 'page' : undefined}>
-						<Icon name="table" />{c.name}
+						<Icon name={c.type === 'auth' ? 'user' : 'table'} />{c.name}
 					</a>
 				</li>
 			{:else}

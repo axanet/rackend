@@ -97,6 +97,27 @@ fn index_steps_create(c: &Collection) -> Vec<DdlStep> {
         .collect()
 }
 
+/// Steps that create a collection's table and indexes. Auth collections also
+/// get the hidden `password_hash` column and a unique index on `email`.
+fn create_steps(c: &Collection) -> Vec<DdlStep> {
+    let auth = c.kind == crate::domain::CollectionType::Auth;
+    let mut steps = vec![DdlStep::CreateTable {
+        table: c.name.clone(),
+        fields: c.fields.clone(),
+        auth,
+    }];
+    if auth {
+        steps.push(DdlStep::CreateIndex {
+            table: c.name.clone(),
+            name: c.email_index_name(),
+            columns: vec!["email".into()],
+            unique: true,
+        });
+    }
+    steps.extend(index_steps_create(c));
+    steps
+}
+
 fn index_steps_drop(c: &Collection) -> Vec<DdlStep> {
     c.indexes
         .iter()
@@ -363,11 +384,7 @@ impl App {
                 c.created = format_timestamp(now);
                 c.updated = c.created.clone();
                 validate(&c, &schema.with(c.clone()))?;
-                let mut steps = vec![DdlStep::CreateTable {
-                    table: c.name.clone(),
-                    fields: c.fields.clone(),
-                }];
-                steps.extend(index_steps_create(&c));
+                let steps = create_steps(&c);
                 let ddl =
                     commit_change(tx, &steps, dry_run, "create", None, Some(&c), &actor, now)?;
                 Ok(Applied {
@@ -588,11 +605,7 @@ impl App {
                     validate(&c, &schema)?;
                     let change = match existing {
                         None => {
-                            let mut steps = vec![DdlStep::CreateTable {
-                                table: c.name.clone(),
-                                fields: c.fields.clone(),
-                            }];
-                            steps.extend(index_steps_create(&c));
+                            let steps = create_steps(&c);
                             let ddl = commit_change(
                                 tx,
                                 &steps,

@@ -6,3 +6,6 @@ mod common;
 mod error_contract;
 mod flows;
 mod rule_matrix;
+mod secrets;
+mod soft_authenticator;
+mod users;

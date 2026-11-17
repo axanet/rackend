@@ -6,6 +6,13 @@ all-features = true
 [advisories]
 version = 2
 yanked = "deny"
+ignore = [
+    # rsa Marvin attack: fixed by the 0.10 series (crypto-bigint, constant
+    # time). We pin 0.10.0-rc.19 because webauthn-rs (crypto-glue) requires
+    # it, and a release candidate sorts before 0.10.0, so the advisory still
+    # matches. Drop this once crypto-glue accepts rsa 0.10.0 (ADR 0011).
+    { id = "RUSTSEC-2023-0071", reason = "rsa 0.10 release candidate already carries the fix; see ADR 0011" },
+]
 
 [licenses]
 version = 2

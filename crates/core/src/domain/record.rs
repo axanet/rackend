@@ -127,6 +127,52 @@ pub fn prepare_create(
     }
 }
 
+/// Password input of an auth-collection write, taken out of the body before
+/// field validation (`password` is not a field; SPEC §8.6).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AuthInput {
+    /// New password.
+    pub password: Option<String>,
+    /// Current password, required for a non-superuser password change.
+    pub old_password: Option<String>,
+}
+
+/// Removes `password` / `old_password` from the body of an auth collection.
+/// Non-string values are validation errors.
+pub fn take_auth_input(
+    c: &Collection,
+    body: &mut Map<String, Value>,
+) -> Result<AuthInput, ValidationErrors> {
+    let mut out = AuthInput::default();
+    if c.auth().is_none() {
+        return Ok(out);
+    }
+    let mut errs = ValidationErrors::default();
+    for key in ["password", "old_password"] {
+        match body.remove(key) {
+            None | Some(Value::Null) => {}
+            Some(Value::String(s)) if key == "password" => out.password = Some(s),
+            Some(Value::String(s)) => out.old_password = Some(s),
+            Some(_) => errs.add(key, FieldError::new("invalid_type", "Must be a string.")),
+        }
+    }
+    if errs.is_empty() { Ok(out) } else { Err(errs) }
+}
+
+/// Stores emails of auth records lowercase, and empty as NULL (the unique
+/// index allows many NULLs but only one empty string).
+pub fn normalize_auth_values(c: &Collection, values: &mut Map<String, Value>) {
+    if c.auth().is_none() {
+        return;
+    }
+    if let Some(v) = values.get_mut("email") {
+        *v = match v.as_str().map(str::trim) {
+            Some("") | None => Value::Null,
+            Some(e) => Value::String(e.to_lowercase()),
+        };
+    }
+}
+
 /// A body key with its modifier (SPEC §10.5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Modifier {

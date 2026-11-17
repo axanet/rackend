@@ -110,7 +110,19 @@ export interface Field {
 	name: string;
 	type: FieldType;
 	required?: boolean;
+	/** System field of an auth collection (`email`, `email_verified`): fixed. */
+	system?: boolean;
 	[option: string]: unknown;
+}
+
+/** Options of an auth collection (flat in `options`). */
+export interface AuthOptions {
+	signup_enabled: boolean;
+	email_visibility: boolean;
+	methods: { password: boolean; passkey: boolean; otp: boolean; magic_link: boolean };
+	password: { min_length: number; require_verified_email_to_login: boolean };
+	session: { access_ttl_s: number; refresh_ttl_s: number; idle_timeout_s: number };
+	oidc_claims?: Record<string, string>;
 }
 
 export interface IndexDef {
@@ -128,7 +140,7 @@ export interface Collection {
 	fields: Field[];
 	indexes: IndexDef[];
 	rules: Record<RuleOp, string | null>;
-	options: { audit_records: boolean };
+	options: { audit_records: boolean } & Partial<AuthOptions>;
 	created: string;
 	updated: string;
 	ddl?: string;

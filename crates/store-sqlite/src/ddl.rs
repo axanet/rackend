@@ -10,7 +10,11 @@ use crate::rules_sql::q;
 /// SQL statements for one step (multi→single checks run separately).
 fn render(step: &DdlStep) -> Vec<String> {
     match step {
-        DdlStep::CreateTable { table, fields } => {
+        DdlStep::CreateTable {
+            table,
+            fields,
+            auth,
+        } => {
             let mut cols = vec![
                 "\"id\" TEXT PRIMARY KEY NOT NULL".to_owned(),
                 "\"created\" TEXT NOT NULL".to_owned(),
@@ -21,6 +25,9 @@ fn render(step: &DdlStep) -> Vec<String> {
                     .iter()
                     .map(|f| format!("{} {}", q(&f.name), f.sql_type())),
             );
+            if *auth {
+                cols.push("\"password_hash\" TEXT".to_owned());
+            }
             vec![format!("CREATE TABLE {} ({})", q(table), cols.join(", "))]
         }
         DdlStep::AddColumn { table, field } => {
@@ -146,6 +153,7 @@ mod tests {
         apply(
             &c,
             &[DdlStep::CreateTable {
+                auth: false,
                 table: "posts".into(),
                 fields: vec![tags],
             }],

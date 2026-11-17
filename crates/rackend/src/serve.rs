@@ -82,17 +82,22 @@ pub async fn run(cfg: Config, version: &'static str) -> Result<(), Fatal> {
     // Step 7: settings, schema cache, compiled rules.
     let app = wiring::app(
         SqliteStore::new(data.clone()),
-        version,
-        cfg.public_url.clone(),
+        wiring::AppOptions {
+            version,
+            public_url: cfg.public_url.clone(),
+            encryption_key: cfg.encryption_key,
+            reset_secrets: cfg.reset_secrets,
+        },
     )
     .await
-    .map_err(|e| Fatal::startup(format!("cannot load settings and collections: {e}")))?;
+    .map_err(Fatal::startup)?;
     tracing::info!(
         collections = app.schema.get().schema.all().len(),
         "schema loaded"
     );
 
-    // Step 8: first superuser (SPEC §5.5 step 4; the rest of first boot arrives with M2).
+    // Step 8: first superuser (SPEC §5.5 step 4). The instance id and the
+    // default `users` collection were created while loading.
     let mut setup_token = None;
     if let Some((email, password)) = &cfg.superuser {
         match app.ensure_superuser(email, password).await {
@@ -113,7 +118,16 @@ pub async fn run(cfg: Config, version: &'static str) -> Result<(), Fatal> {
             .map_err(|e| Fatal::startup(format!("cannot create the setup token: {e}")))?;
     }
 
-    // Step 9: background jobs.
+    // Step 9: background jobs. Signing keys first: RSA generation is slow,
+    // and nothing in this version needs the keys during the first requests.
+    let keys = {
+        let app = Arc::clone(&app);
+        tokio::spawn(async move {
+            if let Err(e) = app.ensure_signing_keys().await {
+                tracing::error!(error = %e, "cannot generate signing keys");
+            }
+        })
+    };
     let optimize = {
         let (data, logs) = (data.clone(), logs.db().clone());
         tokio::spawn(async move {
@@ -157,7 +171,13 @@ pub async fn run(cfg: Config, version: &'static str) -> Result<(), Fatal> {
         .await
         .map_err(|e| Fatal::startup(format!("cannot listen on {}: {e}", cfg.http_addr)))?;
     let addr = listener.local_addr().unwrap_or(cfg.http_addr);
-    let router = wiring::router(Arc::clone(&app), cfg.dev);
+    let router = wiring::router(
+        Arc::clone(&app),
+        rackend_http::HttpOptions {
+            dev: cfg.dev,
+            trusted_proxies: cfg.trusted_proxies.clone(),
+        },
+    );
     let (stop_tx, stop_rx) = oneshot::channel::<()>();
     let mut server = tokio::spawn(rackend_http::serve(listener, router, async {
         let _ = stop_rx.await;
@@ -196,6 +216,7 @@ pub async fn run(cfg: Config, version: &'static str) -> Result<(), Fatal> {
             }
         }
     }
+    keys.abort();
     optimize.abort();
     maintenance.abort();
     if let Err(e) = data.shutdown().await {

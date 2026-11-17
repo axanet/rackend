@@ -40,11 +40,25 @@ The container runs as UID/GID `10001:10001`. Bind mounts must be writable by tha
 | `RACKEND_LOG_LEVEL` | `info` | `tracing` filter, e.g. `info,rackend_store_sqlite=debug` |
 | `RACKEND_LOG_FORMAT` | `json` (`pretty` in dev) | `json` or `pretty` |
 | `RACKEND_SQLITE_SYNCHRONOUS` | `FULL` | `NORMAL` trades durability of the last commits on power loss for write speed (never corruption) |
-
 | `RACKEND_PUBLIC_URL` | unset | Overrides the public URL stored in the settings |
 | `RACKEND_SUPERUSER_EMAIL` / `RACKEND_SUPERUSER_PASSWORD` | unset | Create the first superuser without the setup screen (automation) |
+| `RACKEND_ENCRYPTION_KEY` | unset | 32 bytes in base64 (`openssl rand -base64 32`). Encrypts secrets at rest; see below |
+| `RACKEND_RESET_SECRETS` | `false` | Start even though the stored secrets cannot be decrypted, discarding them; see below |
+| `RACKEND_TRUSTED_PROXIES` | unset | Comma-separated IPs or CIDRs (`10.0.0.0/8, ::1`) whose `X-Forwarded-For` is trusted. Overrides `security.trusted_proxies` |
 
-`RACKEND_ENCRYPTION_KEY`, `RACKEND_TRUSTED_PROXIES` and `RACKEND_OTLP_ENDPOINT` are reserved for upcoming releases; this version logs a warning if they are set.
+`RACKEND_OTLP_ENDPOINT` is reserved for an upcoming release; this version logs a warning if it is set.
+
+## Secrets at rest
+
+SMTP and S3 passwords, client secrets of external providers and the signing keys are encrypted in the database. The key comes from `RACKEND_ENCRYPTION_KEY`, or, when it is not set, from a key rackend generates and stores in the database. The stored key only protects backups that you keep apart from the database, so set `RACKEND_ENCRYPTION_KEY` in production.
+
+- **Adding the key later:** set `RACKEND_ENCRYPTION_KEY` and restart. rackend re-encrypts every secret with it and deletes the stored key (audited as `secrets.rekey`).
+- **Keep the key safe.** Without it the secrets cannot be read and rackend refuses to start. Your collections and records are not affected.
+- **Lost the key:** start once with `RACKEND_RESET_SECRETS=true` and a new key. rackend discards the secrets (audited as `secrets.reset`) and generates new signing keys; enter the SMTP, S3 and provider secrets again, then remove `RACKEND_RESET_SECRETS`.
+
+## Behind a reverse proxy
+
+Rate limits and audit entries use the client IP. Without trusted proxies that is the address of the TCP connection, which behind a proxy is the proxy itself. Set `RACKEND_TRUSTED_PROXIES` (or `security.trusted_proxies` in the settings) to the proxy's address or network; rackend then takes the right-most address in `X-Forwarded-For` that is not a trusted proxy. Never trust a network that clients can send from directly, or they can choose their own IP.
 
 ## First start
 

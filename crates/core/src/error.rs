@@ -148,6 +148,9 @@ pub enum Error {
         /// The limit.
         max_bytes: u64,
     },
+    /// The action needs configuration that is missing: `public_url` or `smtp`.
+    #[error("not configured: {0}")]
+    NotConfigured(&'static str),
     /// A rule-produced query exceeded its time limit.
     #[error("query timeout")]
     QueryTimeout,

@@ -363,6 +363,7 @@ fn load(w: &World, data: &Data) -> Connection {
         ddl::apply(
             &conn,
             &[DdlStep::CreateTable {
+                auth: false,
                 table: c.name.clone(),
                 fields: c.fields.clone(),
             }],

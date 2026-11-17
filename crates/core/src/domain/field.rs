@@ -133,6 +133,46 @@ pub struct Field {
     pub name: String,
     /// Type and options.
     pub kind: FieldKind,
+    /// A system field of auth collections (`email`, `email_verified`):
+    /// always present, not editable.
+    pub system: bool,
+}
+
+/// Fixed id of the `email` system field.
+pub const EMAIL_FIELD_ID: Uuid = Uuid::from_u128(0x0000_0000_0000_7000_8000_0000_0000_e1a1);
+/// Fixed id of the `email_verified` system field.
+pub const EMAIL_VERIFIED_FIELD_ID: Uuid =
+    Uuid::from_u128(0x0000_0000_0000_7000_8000_0000_0000_e1a2);
+
+/// Field names reserved in auth collections (SPEC §8.2, §8.6).
+pub const AUTH_RESERVED: &[&str] = &[
+    "email",
+    "email_verified",
+    "password",
+    "password_hash",
+    "old_password",
+];
+
+/// The system fields of every auth collection (SPEC §8.6).
+pub fn auth_system_fields() -> Vec<Field> {
+    vec![
+        Field {
+            id: EMAIL_FIELD_ID,
+            name: "email".into(),
+            kind: FieldKind::Email {
+                required: false,
+                only_domains: Vec::new(),
+                except_domains: Vec::new(),
+            },
+            system: true,
+        },
+        Field {
+            id: EMAIL_VERIFIED_FIELD_ID,
+            name: "email_verified".into(),
+            kind: FieldKind::Bool,
+            system: true,
+        },
+    ]
 }
 
 impl Field {
@@ -214,6 +254,9 @@ impl Field {
         m.insert("id".into(), json!(self.id));
         m.insert("name".into(), json!(self.name));
         m.insert("type".into(), json!(self.type_name()));
+        if self.system {
+            m.insert("system".into(), json!(true));
+        }
         match &self.kind {
             FieldKind::Text {
                 required,
@@ -306,7 +349,7 @@ impl Field {
             obj,
             path,
             errs,
-            used: vec!["id", "name", "type"],
+            used: vec!["id", "name", "type", "system"],
         };
         let id = match obj.get("id") {
             None | Some(Value::Null) => Uuid::now_v7(),
@@ -544,6 +587,7 @@ impl Field {
             id,
             name: name.to_owned(),
             kind,
+            system: false,
         })
     }
 
@@ -561,6 +605,13 @@ impl Field {
             (FieldKind::Bool, Value::Bool(b)) => Value::Bool(*b),
             (FieldKind::Bool, _) => return Err(type_err("a boolean")),
             (FieldKind::Json { max_size }, v) => {
+                if json_depth(v) > MAX_JSON_DEPTH {
+                    return Err(FieldError::new(
+                        "too_deep",
+                        format!("Must be nested at most {MAX_JSON_DEPTH} levels deep."),
+                    )
+                    .param("max", MAX_JSON_DEPTH));
+                }
                 let size = v.to_string().len() as u64;
                 if size > *max_size {
                     return Err(FieldError::new(
@@ -988,6 +1039,18 @@ impl Opts<'_, '_> {
     }
 }
 
+/// Maximum nesting of a `json` field value (SPEC §17.5).
+pub const MAX_JSON_DEPTH: usize = 64;
+
+/// Nesting depth of a JSON value (scalars are 0).
+fn json_depth(v: &Value) -> usize {
+    match v {
+        Value::Array(a) => 1 + a.iter().map(json_depth).max().unwrap_or(0),
+        Value::Object(m) => 1 + m.values().map(json_depth).max().unwrap_or(0),
+        _ => 0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
@@ -1130,6 +1193,13 @@ mod tests {
         assert_eq!(
             j.normalize(&json!({"a": "long string"})).unwrap_err().code,
             "too_large"
+        );
+        let deep = |n: usize| (0..n).fold(json!(1), |v, _| json!([v]));
+        let j = field(json!({"name": "j", "type": "json"})).unwrap();
+        assert!(j.normalize(&deep(MAX_JSON_DEPTH)).is_ok());
+        assert_eq!(
+            j.normalize(&deep(MAX_JSON_DEPTH + 1)).unwrap_err().code,
+            "too_deep"
         );
         let a = field(json!({"name": "a", "type": "autodate", "on_update": true})).unwrap();
         assert_eq!(

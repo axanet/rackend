@@ -9,6 +9,7 @@ pub mod domain;
 pub mod error;
 pub mod ports;
 pub mod rules;
+pub mod secrets;
 pub mod settings;
 pub mod time;
 pub mod usecases;

@@ -125,12 +125,169 @@ pub struct IndexDef {
 pub struct CollectionOptions {
     /// Record-level audit (SPEC §14.1), default true.
     pub audit_records: bool,
+    /// Options of auth collections (SPEC §8.6); `None` for base collections.
+    pub auth: Option<AuthOptions>,
 }
 
 impl Default for CollectionOptions {
     fn default() -> Self {
         Self {
             audit_records: true,
+            auth: None,
+        }
+    }
+}
+
+/// Login methods of an auth collection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AuthMethods {
+    /// Email + password.
+    pub password: bool,
+    /// Passkeys (needs `app.public_url`).
+    pub passkey: bool,
+    /// Email one-time codes (needs SMTP).
+    pub otp: bool,
+    /// Magic links (needs SMTP).
+    pub magic_link: bool,
+}
+
+/// Options of an auth collection (SPEC §8.6).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuthOptions {
+    /// Public sign-up through the create rule.
+    pub signup_enabled: bool,
+    /// Others may see `email` (the owner and superusers always can).
+    pub email_visibility: bool,
+    /// Enabled login methods.
+    pub methods: AuthMethods,
+    /// Minimum password length (the maximum is 256).
+    pub password_min_length: u32,
+    /// Refuse password login until the email is verified.
+    pub require_verified_email_to_login: bool,
+    /// Access token lifetime in seconds.
+    pub access_ttl_s: i64,
+    /// Refresh token lifetime in seconds.
+    pub refresh_ttl_s: i64,
+    /// Session idle timeout in seconds.
+    pub idle_timeout_s: i64,
+    /// OIDC claim to field mapping (`name`, `picture`).
+    pub oidc_claims: std::collections::BTreeMap<String, String>,
+}
+
+impl Default for AuthOptions {
+    fn default() -> Self {
+        Self {
+            signup_enabled: true,
+            email_visibility: false,
+            methods: AuthMethods {
+                password: true,
+                passkey: true,
+                otp: true,
+                magic_link: true,
+            },
+            password_min_length: 10,
+            require_verified_email_to_login: false,
+            access_ttl_s: 900,
+            refresh_ttl_s: 2_592_000,
+            idle_timeout_s: 1_209_600,
+            oidc_claims: [("name", "name"), ("picture", "avatar")]
+                .into_iter()
+                .map(|(k, v)| (k.to_owned(), v.to_owned()))
+                .collect(),
+        }
+    }
+}
+
+impl AuthOptions {
+    fn to_json(&self) -> Value {
+        json!({
+            "signup_enabled": self.signup_enabled,
+            "email_visibility": self.email_visibility,
+            "methods": {
+                "password": self.methods.password, "passkey": self.methods.passkey,
+                "otp": self.methods.otp, "magic_link": self.methods.magic_link,
+            },
+            "password": {
+                "min_length": self.password_min_length,
+                "require_verified_email_to_login": self.require_verified_email_to_login,
+            },
+            "session": {
+                "access_ttl_s": self.access_ttl_s, "refresh_ttl_s": self.refresh_ttl_s,
+                "idle_timeout_s": self.idle_timeout_s,
+            },
+            "oidc_claims": self.oidc_claims,
+        })
+    }
+
+    /// Applies one option from JSON; errors go under `options.<key>`.
+    fn apply(&mut self, key: &str, v: &Value, errs: &mut ValidationErrors) {
+        fn bad(errs: &mut ValidationErrors, path: &str, msg: &str) {
+            errs.add(
+                format!("options.{path}"),
+                FieldError::new("invalid_option", msg),
+            );
+        }
+        let obj = |v: &Value| v.as_object().cloned().unwrap_or_default();
+        match key {
+            "signup_enabled" | "email_visibility" => match v.as_bool() {
+                Some(b) if key == "signup_enabled" => self.signup_enabled = b,
+                Some(b) => self.email_visibility = b,
+                None => bad(errs, key, "Must be a boolean."),
+            },
+            "methods" => {
+                for (k, x) in obj(v) {
+                    let Some(b) = x.as_bool() else {
+                        bad(errs, &format!("methods.{k}"), "Must be a boolean.");
+                        continue;
+                    };
+                    match k.as_str() {
+                        "password" => self.methods.password = b,
+                        "passkey" => self.methods.passkey = b,
+                        "otp" => self.methods.otp = b,
+                        "magic_link" => self.methods.magic_link = b,
+                        _ => bad(errs, &format!("methods.{k}"), "Unknown method."),
+                    }
+                }
+            }
+            "password" => {
+                for (k, x) in obj(v) {
+                    match (k.as_str(), &x) {
+                        ("min_length", x) => match x.as_u64().filter(|n| (8..=256).contains(n)) {
+                            Some(n) => self.password_min_length = u32::try_from(n).unwrap_or(10),
+                            None => bad(errs, "password.min_length", "Between 8 and 256."),
+                        },
+                        ("require_verified_email_to_login", Value::Bool(b)) => {
+                            self.require_verified_email_to_login = *b;
+                        }
+                        _ => bad(errs, &format!("password.{k}"), "Unknown or invalid option."),
+                    }
+                }
+            }
+            "session" => {
+                for (k, x) in obj(v) {
+                    let n = x.as_i64().filter(|n| *n >= 60);
+                    match (k.as_str(), n) {
+                        ("access_ttl_s", Some(n)) => self.access_ttl_s = n,
+                        ("refresh_ttl_s", Some(n)) => self.refresh_ttl_s = n,
+                        ("idle_timeout_s", Some(n)) => self.idle_timeout_s = n,
+                        _ => bad(errs, &format!("session.{k}"), "Seconds, at least 60."),
+                    }
+                }
+            }
+            "oidc_claims" => {
+                for (k, x) in obj(v) {
+                    match x.as_str() {
+                        Some(f) => {
+                            self.oidc_claims.insert(k, f.to_owned());
+                        }
+                        None => bad(errs, &format!("oidc_claims.{k}"), "Must be a field name."),
+                    }
+                }
+            }
+            _ => errs.add(
+                format!("options.{key}"),
+                FieldError::new("unknown_field", "Unknown option."),
+            ),
         }
     }
 }
@@ -201,7 +358,24 @@ impl Collection {
 
     /// `options` column JSON.
     pub fn options_json(&self) -> Value {
-        json!({ "audit_records": self.options.audit_records })
+        let mut v = json!({ "audit_records": self.options.audit_records });
+        if let (Some(auth), Value::Object(m)) = (&self.options.auth, &mut v)
+            && let Value::Object(a) = auth.to_json()
+        {
+            m.extend(a);
+        }
+        v
+    }
+
+    /// Auth options, if this is an auth collection.
+    pub fn auth(&self) -> Option<&AuthOptions> {
+        self.options.auth.as_ref()
+    }
+
+    /// Name of the unique index on `email` of an auth collection. It carries
+    /// the collection id so it survives renames and the trash.
+    pub fn email_index_name(&self) -> String {
+        format!("sys_email_{}", self.id.simple())
     }
 
     /// Parses a collection definition (create, update, import or a stored
@@ -252,16 +426,7 @@ impl Collection {
         let kind = match obj.get("type").and_then(Value::as_str) {
             None => existing.map_or(CollectionType::Base, |e| e.kind),
             Some("base") => CollectionType::Base,
-            Some("auth") => {
-                errs.add(
-                    "type",
-                    FieldError::new(
-                        "unsupported_type",
-                        "Auth collections are not available yet.",
-                    ),
-                );
-                CollectionType::Auth
-            }
+            Some("auth") => CollectionType::Auth,
             Some(_) => {
                 errs.add(
                     "type",
@@ -279,11 +444,13 @@ impl Collection {
             );
         }
 
-        let fields = match obj.get("fields") {
+        let mut fields: Vec<Field> = match obj.get("fields") {
             None => existing.map(|e| e.fields.clone()).unwrap_or_default(),
             Some(Value::Array(items)) => items
                 .iter()
                 .enumerate()
+                // System fields are canonical: echoes of them are ignored.
+                .filter(|(_, f)| f.get("system").and_then(Value::as_bool) != Some(true))
                 .filter_map(|(i, f)| Field::from_json(f, &format!("fields.{i}"), &mut errs))
                 .collect(),
             Some(_) => {
@@ -341,19 +508,32 @@ impl Collection {
             ),
         }
 
+        // Auth collections always start with their system fields.
+        fields.retain(|f| !f.system);
+        if kind == CollectionType::Auth {
+            let mut all = crate::domain::field::auth_system_fields();
+            all.append(&mut fields);
+            fields = all;
+        }
+
         let mut options = existing.map(|e| e.options.clone()).unwrap_or_default();
+        if kind == CollectionType::Auth && options.auth.is_none() {
+            options.auth = Some(AuthOptions::default());
+        }
+        if kind == CollectionType::Base {
+            options.auth = None;
+        }
         match obj.get("options") {
             None => {}
             Some(Value::Object(o)) => {
                 for (k, v) in o {
-                    match (k.as_str(), v) {
-                        ("audit_records", Value::Bool(b)) => options.audit_records = *b,
-                        ("audit_records", _) => {
-                            errs.add(
-                                "options.audit_records",
-                                FieldError::new("invalid_type", "Must be a boolean."),
-                            );
-                        }
+                    match (k.as_str(), v, options.auth.as_mut()) {
+                        ("audit_records", Value::Bool(b), _) => options.audit_records = *b,
+                        ("audit_records", _, _) => errs.add(
+                            "options.audit_records",
+                            FieldError::new("invalid_type", "Must be a boolean."),
+                        ),
+                        (_, v, Some(auth)) => auth.apply(k, v, &mut errs),
                         _ => errs.add(
                             format!("options.{k}"),
                             FieldError::new("unknown_field", "Unknown option."),
@@ -402,8 +582,16 @@ impl Collection {
         }
         let mut names = HashSet::new();
         let mut ids = HashSet::new();
+        let reserved: &[&str] = if self.kind == CollectionType::Auth {
+            crate::domain::field::AUTH_RESERVED
+        } else {
+            &[]
+        };
         for (i, f) in self.fields.iter().enumerate() {
-            if let Err(e) = check_field_name(&f.name, &[]) {
+            if f.system {
+                continue;
+            }
+            if let Err(e) = check_field_name(&f.name, reserved) {
                 errs.add(format!("fields.{i}.name"), e);
             }
             if !names.insert(f.name.as_str()) {

@@ -10,7 +10,8 @@ use std::pin::Pin;
 
 use serde_json::{Map, Value};
 
-use crate::auth::{SessionRow, Superuser};
+use crate::auth::keys::KeyRow;
+use crate::auth::{PasskeyRow, SessionRow, Superuser};
 use crate::domain::{AuditEntry, Collection, DdlStep, Field, HistoryEntry, Record, TrashEntry};
 use crate::rules::TypedRule;
 use crate::rules::eval::RequestValues;
@@ -161,6 +162,23 @@ pub trait ReadTx {
     fn session_get(&mut self, id: &str) -> Result<Option<SessionRow>>;
     /// Whether an unused, unexpired setup token with this hash exists.
     fn setup_token_valid(&mut self, hash: &str, now: &str) -> Result<bool>;
+
+    /// An auth record by (lowercase) email, with its password hash.
+    fn auth_find_by_email(
+        &mut self,
+        c: &Collection,
+        email: &str,
+    ) -> Result<Option<(Record, Option<String>)>>;
+    /// The password hash of an auth record.
+    fn auth_password_hash(&mut self, c: &Collection, id: &str) -> Result<Option<String>>;
+    /// Sessions of a user or superuser, newest first.
+    fn sessions_for(&mut self, user_id: &str) -> Result<Vec<SessionRow>>;
+    /// Passkeys of a user or superuser.
+    fn passkeys_for(&mut self, user_id: &str) -> Result<Vec<PasskeyRow>>;
+    /// A passkey by credential id.
+    fn passkey_by_credential(&mut self, credential_id: &str) -> Result<Option<PasskeyRow>>;
+    /// All signing keys, oldest first.
+    fn keys_list(&mut self) -> Result<Vec<KeyRow>>;
 }
 
 /// Repository methods available inside a write transaction.
@@ -229,6 +247,23 @@ pub trait WriteTx: ReadTx {
     fn setup_token_replace(&mut self, hash: &str, expires: &str) -> Result<()>;
     /// Marks a setup token used.
     fn setup_token_use(&mut self, hash: &str, now: &str) -> Result<()>;
+
+    /// Sets (or clears) the password hash of an auth record.
+    fn auth_password_set(&mut self, c: &Collection, id: &str, hash: Option<&str>) -> Result<()>;
+    /// Inserts a passkey.
+    fn passkey_insert(&mut self, p: &PasskeyRow) -> Result<()>;
+    /// Updates the credential (sign counter) and last use of a passkey.
+    fn passkey_update(&mut self, p: &PasskeyRow) -> Result<()>;
+    /// Deletes a passkey of `user_id`; returns whether it existed.
+    fn passkey_delete(&mut self, user_id: &str, id: &str) -> Result<bool>;
+    /// Deletes all passkeys of a user or superuser.
+    fn passkeys_delete_for(&mut self, user_id: &str) -> Result<u64>;
+    /// Inserts a signing key.
+    fn key_insert(&mut self, k: &KeyRow) -> Result<()>;
+    /// Replaces the encrypted private key of a signing key (re-encryption).
+    fn key_set_private(&mut self, kid: &str, private_enc: &str) -> Result<()>;
+    /// Deletes all signing keys (secrets reset).
+    fn keys_delete_all(&mut self) -> Result<u64>;
 }
 
 /// Transactional access to the database.

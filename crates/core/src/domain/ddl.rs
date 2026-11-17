@@ -10,8 +10,10 @@ pub enum DdlStep {
     CreateTable {
         /// Table name.
         table: String,
-        /// User fields.
+        /// Fields (including the system fields of auth collections).
         fields: Vec<Field>,
+        /// Auth collection: adds the hidden `password_hash` column.
+        auth: bool,
     },
     /// `ALTER TABLE … ADD COLUMN` (NULL default).
     AddColumn {

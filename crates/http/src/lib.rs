@@ -8,7 +8,9 @@ pub mod ctx;
 mod health;
 pub mod html;
 pub mod middleware;
+pub mod net;
 pub mod problem;
+pub mod ratelimit;
 pub mod ui;
 
 use std::future::Future;
@@ -51,15 +53,54 @@ pub struct AppState {
 struct AppInner {
     app: Arc<App>,
     ui: Option<Arc<dyn UiAssets>>,
-    dev: bool,
+    opts: HttpOptions,
+    limits: ratelimit::RateLimits,
+}
+
+/// Request-handling options known at startup.
+#[derive(Debug, Clone, Default)]
+pub struct HttpOptions {
+    /// Dev mode (`RACKEND_DEV`).
+    pub dev: bool,
+    /// `RACKEND_TRUSTED_PROXIES`; when empty, `security.trusted_proxies` applies.
+    pub trusted_proxies: Vec<net::Cidr>,
 }
 
 impl AppState {
     /// Builds the state.
-    pub fn new(app: Arc<App>, ui: Option<Arc<dyn UiAssets>>, dev: bool) -> Self {
+    pub fn new(app: Arc<App>, ui: Option<Arc<dyn UiAssets>>, opts: HttpOptions) -> Self {
         Self {
-            inner: Arc::new(AppInner { app, ui, dev }),
+            inner: Arc::new(AppInner {
+                app,
+                ui,
+                opts,
+                limits: ratelimit::RateLimits::default(),
+            }),
         }
+    }
+
+    /// Trusted proxy networks: the environment wins over the settings.
+    pub fn trusted_proxies(&self) -> Vec<net::Cidr> {
+        if !self.inner.opts.trusted_proxies.is_empty() {
+            return self.inner.opts.trusted_proxies.clone();
+        }
+        self.inner
+            .app
+            .settings()
+            .strings("security", "trusted_proxies")
+            .iter()
+            .filter_map(|c| net::Cidr::parse(c))
+            .collect()
+    }
+
+    /// The rate limiters.
+    pub fn limits(&self) -> &ratelimit::RateLimits {
+        &self.inner.limits
+    }
+
+    /// Current rate-limit values.
+    pub fn limit_config(&self) -> ratelimit::LimitConfig {
+        ratelimit::LimitConfig::from_settings(self.inner.app.settings().section("security"))
     }
 
     /// The application (use cases).
@@ -79,7 +120,7 @@ impl AppState {
 
     /// Dev mode (`RACKEND_DEV`).
     pub fn dev(&self) -> bool {
-        self.inner.dev
+        self.inner.opts.dev
     }
 
     /// Whether cookies get `Secure`: always, except in dev mode when the
@@ -91,7 +132,7 @@ impl AppState {
             .settings()
             .public_url()
             .is_some_and(|u| u.starts_with("https://"));
-        !self.inner.dev || https
+        !self.inner.opts.dev || https
     }
 }
 
@@ -137,6 +178,101 @@ pub fn routes() -> Vec<RouteSpec> {
         r(Method::POST, "/api/superusers", "/api/superusers"),
         r(Method::PATCH, "/api/superusers/{id}", "/api/superusers/x"),
         r(Method::DELETE, "/api/superusers/{id}", "/api/superusers/x"),
+        r(
+            Method::GET,
+            "/api/superusers/passkeys",
+            "/api/superusers/passkeys",
+        ),
+        r(
+            Method::DELETE,
+            "/api/superusers/passkeys/{id}",
+            "/api/superusers/passkeys/x",
+        ),
+        r(
+            Method::POST,
+            "/api/superusers/passkeys/register/start",
+            "/api/superusers/passkeys/register/start",
+        ),
+        r(
+            Method::POST,
+            "/api/superusers/passkeys/register/finish",
+            "/api/superusers/passkeys/register/finish",
+        ),
+        r(
+            Method::POST,
+            "/api/superusers/passkeys/login/start",
+            "/api/superusers/passkeys/login/start",
+        ),
+        r(
+            Method::POST,
+            "/api/superusers/passkeys/login/finish",
+            "/api/superusers/passkeys/login/finish",
+        ),
+        r(
+            Method::GET,
+            "/api/collections/{c}/auth-methods",
+            "/api/collections/users/auth-methods",
+        ),
+        r(
+            Method::POST,
+            "/api/collections/{c}/auth-with-password",
+            "/api/collections/users/auth-with-password",
+        ),
+        r(
+            Method::POST,
+            "/api/collections/{c}/auth-refresh",
+            "/api/collections/users/auth-refresh",
+        ),
+        r(
+            Method::POST,
+            "/api/collections/{c}/logout",
+            "/api/collections/users/logout",
+        ),
+        r(
+            Method::GET,
+            "/api/collections/{c}/sessions",
+            "/api/collections/users/sessions",
+        ),
+        r(
+            Method::DELETE,
+            "/api/collections/{c}/sessions",
+            "/api/collections/users/sessions",
+        ),
+        r(
+            Method::DELETE,
+            "/api/collections/{c}/sessions/{id}",
+            "/api/collections/users/sessions/x",
+        ),
+        r(
+            Method::GET,
+            "/api/collections/{c}/passkeys",
+            "/api/collections/users/passkeys",
+        ),
+        r(
+            Method::DELETE,
+            "/api/collections/{c}/passkeys/{id}",
+            "/api/collections/users/passkeys/x",
+        ),
+        r(
+            Method::POST,
+            "/api/collections/{c}/passkeys/register/start",
+            "/api/collections/users/passkeys/register/start",
+        ),
+        r(
+            Method::POST,
+            "/api/collections/{c}/passkeys/register/finish",
+            "/api/collections/users/passkeys/register/finish",
+        ),
+        r(
+            Method::POST,
+            "/api/collections/{c}/passkeys/login/start",
+            "/api/collections/users/passkeys/login/start",
+        ),
+        r(
+            Method::POST,
+            "/api/collections/{c}/passkeys/login/finish",
+            "/api/collections/users/passkeys/login/finish",
+        ),
         r(Method::GET, "/api/collections", "/api/collections"),
         r(Method::POST, "/api/collections", "/api/collections"),
         r(
@@ -214,7 +350,7 @@ pub fn routes() -> Vec<RouteSpec> {
 
 /// The full application router with all middleware.
 pub fn router(state: AppState, cfg: HttpConfig) -> Router {
-    use api::{admin, auth, collections, records};
+    use api::{admin, auth, collections, records, users};
     let app = Router::new()
         .route("/api/health", get(health::health))
         .route("/api/info", get(auth::info))
@@ -226,6 +362,66 @@ pub fn router(state: AppState, cfg: HttpConfig) -> Router {
         .route(
             "/api/superusers/{id}",
             patch(auth::update).delete(auth::delete),
+        )
+        .route("/api/superusers/passkeys", get(users::su_passkeys))
+        .route(
+            "/api/superusers/passkeys/{id}",
+            delete(users::su_passkey_delete),
+        )
+        .route(
+            "/api/superusers/passkeys/register/start",
+            post(users::su_passkey_register_start),
+        )
+        .route(
+            "/api/superusers/passkeys/register/finish",
+            post(users::su_passkey_register_finish),
+        )
+        .route(
+            "/api/superusers/passkeys/login/start",
+            post(users::su_passkey_login_start),
+        )
+        .route(
+            "/api/superusers/passkeys/login/finish",
+            post(users::su_passkey_login_finish),
+        )
+        .route(
+            "/api/collections/{c}/auth-methods",
+            get(users::auth_methods),
+        )
+        .route(
+            "/api/collections/{c}/auth-with-password",
+            post(users::login),
+        )
+        .route("/api/collections/{c}/auth-refresh", post(users::refresh))
+        .route("/api/collections/{c}/logout", post(users::logout))
+        .route(
+            "/api/collections/{c}/sessions",
+            get(users::sessions).delete(users::sessions_revoke_all),
+        )
+        .route(
+            "/api/collections/{c}/sessions/{id}",
+            delete(users::session_revoke),
+        )
+        .route("/api/collections/{c}/passkeys", get(users::passkeys))
+        .route(
+            "/api/collections/{c}/passkeys/{id}",
+            delete(users::passkey_delete),
+        )
+        .route(
+            "/api/collections/{c}/passkeys/register/start",
+            post(users::passkey_register_start),
+        )
+        .route(
+            "/api/collections/{c}/passkeys/register/finish",
+            post(users::passkey_register_finish),
+        )
+        .route(
+            "/api/collections/{c}/passkeys/login/start",
+            post(users::passkey_login_start),
+        )
+        .route(
+            "/api/collections/{c}/passkeys/login/finish",
+            post(users::passkey_login_finish),
         )
         .route(
             "/api/collections",
@@ -264,6 +460,10 @@ pub fn router(state: AppState, cfg: HttpConfig) -> Router {
         .route("/_/", get(ui::index))
         .route("/_/{*path}", get(ui::asset))
         .fallback(not_found)
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            ratelimit::global_limit,
+        ))
         .with_state(state);
     with_middleware(app, cfg)
 }

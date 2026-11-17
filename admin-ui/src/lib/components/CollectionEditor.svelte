@@ -4,7 +4,7 @@
 	import { tick } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { ApiError, del, message, patch, post, type Collection, type Field, type FieldType, type IndexDef, type RuleOp } from '../api';
+	import { ApiError, del, message, patch, post, type AuthOptions, type Collection, type Field, type FieldType, type IndexDef, type RuleOp } from '../api';
 	import { session } from '../session.svelte';
 	import Icon from './Icon.svelte';
 	import RuleInput from './RuleInput.svelte';
@@ -14,11 +14,38 @@
 	const TYPES: FieldType[] = ['text', 'email', 'url', 'number', 'bool', 'date', 'autodate', 'select', 'json', 'relation'];
 	const OPS: RuleOp[] = ['list', 'view', 'create', 'update', 'delete'];
 
+	const AUTH_DEFAULTS: AuthOptions = {
+		signup_enabled: true,
+		email_visibility: false,
+		methods: { password: true, passkey: true, otp: false, magic_link: false },
+		password: { min_length: 10, require_verified_email_to_login: false },
+		session: { access_ttl_s: 900, refresh_ttl_s: 2592000, idle_timeout_s: 1209600 }
+	};
+	// Shown for a new auth collection; the server adds them on create.
+	const AUTH_SYSTEM: Field[] = [
+		{ name: 'email', type: 'email', required: true, system: true },
+		{ name: 'email_verified', type: 'bool', system: true }
+	];
+
+	function authOptions(c: Collection | null): AuthOptions {
+		const o: Partial<AuthOptions> = c?.options ?? {};
+		return {
+			signup_enabled: o.signup_enabled ?? AUTH_DEFAULTS.signup_enabled,
+			email_visibility: o.email_visibility ?? AUTH_DEFAULTS.email_visibility,
+			methods: { ...AUTH_DEFAULTS.methods, ...$state.snapshot(o.methods ?? {}) },
+			password: { ...AUTH_DEFAULTS.password, ...$state.snapshot(o.password ?? {}) },
+			session: { ...AUTH_DEFAULTS.session, ...$state.snapshot(o.session ?? {}) }
+		};
+	}
+
 	function initial(c: Collection | null) {
 		return {
 			name: c?.name ?? '',
+			type: c?.type ?? 'base',
 			// Snapshots: the source may be a reactive proxy, which structuredClone rejects.
-			fields: $state.snapshot(c?.fields ?? []) as Field[],
+			// System fields are fixed and shown apart; the server adds them back.
+			fields: ($state.snapshot(c?.fields ?? []) as Field[]).filter((f) => !f.system),
+			auth: authOptions(c),
 			indexes: $state.snapshot(c?.indexes ?? []) as IndexDef[],
 			rules: $state.snapshot(c?.rules ?? { list: null, view: null, create: null, update: null, delete: null }) as Record<RuleOp, string | null>,
 			audit_records: c?.options.audit_records ?? true
@@ -43,12 +70,21 @@
 	let payload = $derived({
 		...(collection ? { id: collection.id } : {}),
 		name: draft.name,
-		type: 'base',
+		type: draft.type,
 		fields: draft.fields,
 		indexes: draft.indexes,
 		rules: draft.rules,
-		options: { audit_records: draft.audit_records }
+		options: { audit_records: draft.audit_records, ...(draft.type === 'auth' ? draft.auth : {}) }
 	});
+	let systemFields = $derived(draft.type !== 'auth' ? [] : collection ? collection.fields.filter((f) => f.system) : AUTH_SYSTEM);
+
+	function duration(s: number): string {
+		if (!Number.isFinite(s) || s <= 0) return '';
+		if (s % 86400 === 0) return `${s / 86400} d`;
+		if (s % 3600 === 0) return `${s / 3600} h`;
+		if (s % 60 === 0) return `${s / 60} min`;
+		return `${s} s`;
+	}
 
 	function addField() {
 		draft.fields.push({ name: '', type: 'text', required: false });
@@ -175,8 +211,63 @@
 			/>
 			<span id="name-hint" class={fieldErr('name') ? 'error-text' : 'hint'}>{fieldErr('name') ?? 'Lowercase letters, digits and _. Also the table name and the URL segment.'}</span>
 		</label>
+		<fieldset class="kind">
+			<legend>Type</legend>
+			{#if collection}
+				<p class="hint"><span class="tag">{draft.type}</span> The type cannot change after creation.</p>
+			{:else}
+				<div class="kinds">
+					{#each [['base', 'table', 'Base', 'Records with your fields.'], ['auth', 'user', 'Auth', 'Accounts that can sign in: email, password, passkeys, sessions.']] as const as [value, icon, label, text] (value)}
+						<label class="kind-option" class:active={draft.type === value}>
+							<input type="radio" name="type" {value} aria-label={label} bind:group={draft.type} />
+							<span class="ico"><Icon name={icon} /></span>
+							<span><strong>{label}</strong><span class="hint">{text}</span></span>
+						</label>
+					{/each}
+				</div>
+			{/if}
+		</fieldset>
 		<label class="inline"><input type="checkbox" bind:checked={draft.audit_records} />Audit record changes</label>
 	</section>
+
+	{#if draft.type === 'auth'}
+		<section class="card section">
+			<div class="card-head"><span class="ico"><Icon name="user" /></span><span class="eyebrow">Sign-in</span></div>
+			<div class="auth-grid">
+				<fieldset class="group">
+					<legend>Methods</legend>
+					<label class="inline"><input type="checkbox" bind:checked={draft.auth.methods.password} />Email and password</label>
+					<label class="inline"><input type="checkbox" bind:checked={draft.auth.methods.passkey} />Passkeys</label>
+					<label class="inline disabled"><input type="checkbox" disabled checked={draft.auth.methods.otp} />Email codes <span class="tag">needs SMTP</span></label>
+					<label class="inline disabled"><input type="checkbox" disabled checked={draft.auth.methods.magic_link} />Magic links <span class="tag">needs SMTP</span></label>
+				</fieldset>
+				<fieldset class="group">
+					<legend>Accounts</legend>
+					<label class="inline"><input type="checkbox" bind:checked={draft.auth.signup_enabled} />Public sign-up</label>
+					<label class="inline"><input type="checkbox" bind:checked={draft.auth.email_visibility} />Others can see emails</label>
+					<label class="inline"><input type="checkbox" bind:checked={draft.auth.password.require_verified_email_to_login} />Verified email required to sign in</label>
+				</fieldset>
+			</div>
+			<div class="limits">
+				<label class="field">
+					Min password length
+					<input type="number" min="8" max="256" bind:value={draft.auth.password.min_length} aria-invalid={fieldErr('options.password.min_length') ? 'true' : undefined} />
+					<span class={fieldErr('options.password.min_length') ? 'error-text' : 'hint mono'}>{fieldErr('options.password.min_length') ?? '8 to 256'}</span>
+				</label>
+				{#each [['access_ttl_s', 'Access token'], ['refresh_ttl_s', 'Refresh token'], ['idle_timeout_s', 'Idle timeout']] as [key, label] (key)}
+					{@const k = key as keyof AuthOptions['session']}
+					<label class="field">
+						{label} (s)
+						<input type="number" min="60" bind:value={draft.auth.session[k]} aria-invalid={fieldErr(`options.session.${k}`) ? 'true' : undefined} />
+						<span class={fieldErr(`options.session.${k}`) ? 'error-text' : 'hint mono'}>{fieldErr(`options.session.${k}`) ?? duration(draft.auth.session[k])}</span>
+					</label>
+				{/each}
+			</div>
+			{#each Object.entries(error?.errors ?? {}).filter(([k]) => k.startsWith('options.') && !k.startsWith('options.session.') && k !== 'options.password.min_length') as [k, errs] (k)}
+				<p class="error-text">{k.slice('options.'.length)}: {errs[0].message}</p>
+			{/each}
+		</section>
+	{/if}
 
 	<section class="card section">
 		<div class="section-head">
@@ -186,6 +277,17 @@
 		<p class="hint">
 			Every record also has <code>id</code>, <code>created</code> and <code>updated</code>. Removed fields go to the trash and can be restored.
 		</p>
+		{#each systemFields as f (f.name)}
+			<div class="field-row system">
+				<span class="mono">{f.name}</span>
+				<span class="tag">{f.type}</span>
+				<span class="tag">system</span>
+				<span class="hint">{f.name === 'email' ? 'Unique, lowercase. Users cannot change it yet.' : 'Set by superusers; users cannot change it.'}</span>
+			</div>
+		{/each}
+		{#if systemFields.length}
+			<p class="hint">The password is stored as an Argon2id hash in a hidden column and never returned.</p>
+		{/if}
 		{#each draft.fields as f, i (f.id ?? i)}
 			<fieldset class="field-row">
 				<legend class="sr-only">Field {i + 1}</legend>
@@ -258,7 +360,9 @@
 				{/each}
 			</fieldset>
 		{:else}
-			<p class="placeholder">No fields yet. Records will only have <code>id</code>, <code>created</code> and <code>updated</code>.</p>
+			{#if !systemFields.length}
+				<p class="placeholder">No fields yet. Records will only have <code>id</code>, <code>created</code> and <code>updated</code>.</p>
+			{/if}
 		{/each}
 	</section>
 
@@ -392,6 +496,96 @@
 	.rules {
 		display: grid;
 		gap: 16px;
+	}
+	.kind,
+	.group {
+		margin: 0;
+		padding: 0;
+		border: 0;
+		display: grid;
+		gap: 8px;
+		min-width: 0;
+	}
+	.kind legend,
+	.group legend {
+		padding: 0;
+		margin-bottom: 8px;
+		font-size: 14px;
+		font-weight: 500;
+	}
+	.kinds {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+		gap: 12px;
+	}
+	.kind-option {
+		position: relative;
+		display: flex;
+		gap: 12px;
+		align-items: flex-start;
+		padding: 14px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		background: transparent;
+		cursor: pointer;
+		transition:
+			border-color 0.15s var(--ease-out),
+			background-color 0.15s var(--ease-out);
+	}
+	.kind-option:hover {
+		border-color: var(--border-strong);
+	}
+	.kind-option.active {
+		border-color: var(--accent);
+		background: var(--surface);
+	}
+	.kind-option.active .ico {
+		color: var(--accent-text);
+	}
+	.kind-option:has(input:focus-visible) {
+		outline: 2px solid var(--accent);
+		outline-offset: 2px;
+	}
+	.kind-option input {
+		position: absolute;
+		opacity: 0;
+		pointer-events: none;
+	}
+	.kind-option strong {
+		display: block;
+		font-size: 14px;
+		font-weight: 500;
+	}
+	.kind-option .hint {
+		font-size: 13px;
+	}
+	.auth-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+		gap: 16px;
+	}
+	.limits {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+		gap: 12px;
+		align-items: start;
+	}
+	.auth-grid .inline {
+		height: 32px;
+	}
+	.disabled {
+		color: var(--fg-subtle);
+		cursor: default;
+	}
+	.field-row.system {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		flex-wrap: wrap;
+		padding: 10px 16px;
+	}
+	.field-row.system .mono {
+		font-size: 14px;
 	}
 	dialog {
 		width: min(720px, calc(100vw - 32px));

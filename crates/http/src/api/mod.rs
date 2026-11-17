@@ -4,6 +4,7 @@ pub mod admin;
 pub mod auth;
 pub mod collections;
 pub mod records;
+pub mod users;
 
 use axum::Json;
 use axum::http::StatusCode;

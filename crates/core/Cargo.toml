@@ -24,6 +24,11 @@ base64 = { workspace = true }
 argon2 = { workspace = true }
 rand = { workspace = true }
 subtle = { workspace = true }
+hmac = { workspace = true }
+chacha20poly1305 = { workspace = true }
+rsa = { workspace = true }
+p256 = { workspace = true }
+webauthn-rs = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

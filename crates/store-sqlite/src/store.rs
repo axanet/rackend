@@ -4,7 +4,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use rackend_core::auth::{SessionRow, SubjectType, Superuser};
+use rackend_core::auth::keys::KeyRow;
+use rackend_core::auth::{PasskeyRow, SessionRow, SubjectType, Superuser};
 use rackend_core::domain::{
     ActorType, AuditEntry, Collection, DdlStep, HistoryEntry, Record, TrashEntry, TrashKind,
 };
@@ -235,6 +236,28 @@ fn session_from_row(row: &Row<'_>) -> rusqlite::Result<SessionRow> {
         revoked_reason: row.get(15)?,
         ip: row.get(16)?,
         user_agent: row.get(17)?,
+    })
+}
+
+const PASSKEY_COLS: &str =
+    "id, owner_type, collection_id, user_id, credential_id, credential, name, created, last_used";
+
+fn passkey_from_row(row: &Row<'_>) -> rusqlite::Result<PasskeyRow> {
+    let owner: String = row.get(1)?;
+    Ok(PasskeyRow {
+        id: row.get(0)?,
+        owner_type: if owner == "superuser" {
+            SubjectType::Superuser
+        } else {
+            SubjectType::User
+        },
+        collection_id: row.get(2)?,
+        user_id: row.get(3)?,
+        credential_id: row.get(4)?,
+        credential: row.get(5)?,
+        name: row.get(6)?,
+        created: row.get(7)?,
+        last_used: row.get(8)?,
     })
 }
 
@@ -499,6 +522,95 @@ impl ReadTx for SqliteTx<'_> {
                 |r| r.get(0),
             )
             .map_err(sql)
+    }
+
+    fn auth_find_by_email(
+        &mut self,
+        c: &Collection,
+        email: &str,
+    ) -> CoreResult<Option<(Record, Option<String>)>> {
+        let Some(id) = self
+            .conn
+            .query_row(
+                &format!(
+                    "SELECT \"id\" FROM {} WHERE \"email\" = ?1",
+                    crate::rules_sql::q(&c.name)
+                ),
+                [email],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(sql)?
+        else {
+            return Ok(None);
+        };
+        let rec = records::get(self.conn, c, &id)?;
+        let hash = self.auth_password_hash(c, &id)?;
+        Ok(rec.map(|r| (r, hash)))
+    }
+
+    fn auth_password_hash(&mut self, c: &Collection, id: &str) -> CoreResult<Option<String>> {
+        self.conn
+            .query_row(
+                &format!(
+                    "SELECT \"password_hash\" FROM {} WHERE \"id\" = ?1",
+                    crate::rules_sql::q(&c.name)
+                ),
+                [id],
+                |r| r.get::<_, Option<String>>(0),
+            )
+            .optional()
+            .map(Option::flatten)
+            .map_err(sql)
+    }
+
+    fn sessions_for(&mut self, user_id: &str) -> CoreResult<Vec<SessionRow>> {
+        self.collect(
+            &format!(
+                "SELECT {SESSION_COLS} FROM _sessions WHERE user_id = ?1 ORDER BY created DESC"
+            ),
+            [user_id],
+            session_from_row,
+        )
+    }
+
+    fn passkeys_for(&mut self, user_id: &str) -> CoreResult<Vec<PasskeyRow>> {
+        self.collect(
+            &format!("SELECT {PASSKEY_COLS} FROM _passkeys WHERE user_id = ?1 ORDER BY created"),
+            [user_id],
+            passkey_from_row,
+        )
+    }
+
+    fn passkey_by_credential(&mut self, credential_id: &str) -> CoreResult<Option<PasskeyRow>> {
+        self.conn
+            .query_row(
+                &format!("SELECT {PASSKEY_COLS} FROM _passkeys WHERE credential_id = ?1"),
+                [credential_id],
+                passkey_from_row,
+            )
+            .optional()
+            .map_err(sql)
+    }
+
+    fn keys_list(&mut self) -> CoreResult<Vec<KeyRow>> {
+        self.collect(
+            "SELECT kid, alg, private_enc, public_jwk, created, activated_at, retired_at, delete_after
+             FROM _keys ORDER BY created",
+            [],
+            |r| {
+                Ok(KeyRow {
+                    kid: r.get(0)?,
+                    alg: r.get(1)?,
+                    private_enc: r.get(2)?,
+                    public_jwk: r.get(3)?,
+                    created: r.get(4)?,
+                    activated_at: r.get(5)?,
+                    retired_at: r.get(6)?,
+                    delete_after: r.get(7)?,
+                })
+            },
+        )
     }
 }
 
@@ -781,6 +893,110 @@ impl WriteTx for SqliteTx<'_> {
                 [hash, now],
             )
             .map(drop)
+            .map_err(sql)
+    }
+
+    fn auth_password_set(
+        &mut self,
+        c: &Collection,
+        id: &str,
+        hash: Option<&str>,
+    ) -> CoreResult<()> {
+        self.conn
+            .execute(
+                &format!(
+                    "UPDATE {} SET \"password_hash\" = ?2 WHERE \"id\" = ?1",
+                    crate::rules_sql::q(&c.name)
+                ),
+                params![id, hash],
+            )
+            .map(drop)
+            .map_err(sql)
+    }
+
+    fn passkey_insert(&mut self, p: &PasskeyRow) -> CoreResult<()> {
+        self.conn
+            .execute(
+                &format!(
+                    "INSERT INTO _passkeys ({PASSKEY_COLS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"
+                ),
+                params![
+                    p.id,
+                    p.owner_type.as_str(),
+                    p.collection_id,
+                    p.user_id,
+                    p.credential_id,
+                    p.credential,
+                    p.name,
+                    p.created,
+                    p.last_used
+                ],
+            )
+            .map(drop)
+            .map_err(sql)
+    }
+
+    fn passkey_update(&mut self, p: &PasskeyRow) -> CoreResult<()> {
+        self.conn
+            .execute(
+                "UPDATE _passkeys SET credential = ?2, last_used = ?3, name = ?4 WHERE id = ?1",
+                params![p.id, p.credential, p.last_used, p.name],
+            )
+            .map(drop)
+            .map_err(sql)
+    }
+
+    fn passkey_delete(&mut self, user_id: &str, id: &str) -> CoreResult<bool> {
+        self.conn
+            .execute(
+                "DELETE FROM _passkeys WHERE id = ?1 AND user_id = ?2",
+                [id, user_id],
+            )
+            .map(|n| n > 0)
+            .map_err(sql)
+    }
+
+    fn passkeys_delete_for(&mut self, user_id: &str) -> CoreResult<u64> {
+        self.conn
+            .execute("DELETE FROM _passkeys WHERE user_id = ?1", [user_id])
+            .map(|n| n as u64)
+            .map_err(sql)
+    }
+
+    fn key_insert(&mut self, k: &KeyRow) -> CoreResult<()> {
+        self.conn
+            .execute(
+                "INSERT INTO _keys (kid, alg, private_enc, public_jwk, created, activated_at, retired_at, delete_after)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    k.kid,
+                    k.alg,
+                    k.private_enc,
+                    k.public_jwk,
+                    k.created,
+                    k.activated_at,
+                    k.retired_at,
+                    k.delete_after
+                ],
+            )
+            .map(drop)
+            .map_err(sql)
+    }
+
+    fn key_set_private(&mut self, kid: &str, private_enc: &str) -> CoreResult<()> {
+        self.conn
+            .execute(
+                "UPDATE _keys SET private_enc = ?2 WHERE kid = ?1",
+                [kid, private_enc],
+            )
+            .map(drop)
+            .map_err(sql)
+    }
+
+    fn keys_delete_all(&mut self) -> CoreResult<u64> {
+        self.conn
+            .execute("DELETE FROM _keys", [])
+            .map(|n| n as u64)
             .map_err(sql)
     }
 }

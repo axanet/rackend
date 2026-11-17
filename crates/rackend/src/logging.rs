@@ -47,7 +47,8 @@ where
     Ok(())
 }
 
-fn subscriber<W>(
+/// The subscriber [`init`] installs, writing to `writer` (tests capture output).
+pub fn subscriber<W>(
     filter: EnvFilter,
     format: LogFormat,
     writer: W,

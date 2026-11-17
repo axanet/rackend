@@ -31,6 +31,8 @@ const CORE_ALLOWED: &[&str] = &[
     // ADR 0007
     "serde_json",
     "regex",
+    // ADR 0011
+    "chacha20poly1305",
 ];
 
 /// Crates that must never appear anywhere in `core`'s dependency tree.

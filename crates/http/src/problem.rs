@@ -316,6 +316,14 @@ impl From<CoreError> for ApiError {
                 p.max_bytes = Some(max_bytes);
                 p.into()
             }
+            CoreError::NotConfigured("smtp") => Self::with_detail(
+                ProblemCode::SmtpNotConfigured,
+                "This action sends email, and SMTP is not configured.",
+            ),
+            CoreError::NotConfigured(_) => Self::with_detail(
+                ProblemCode::PublicUrlNotConfigured,
+                "Set the public URL (app.public_url) first.",
+            ),
             CoreError::QueryTimeout => {
                 let mut p = Problem::new(ProblemCode::QueryTimeout)
                     .with_detail("The query took too long. Simplify the filter or add an index.");

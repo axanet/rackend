@@ -6,36 +6,18 @@ use axum::http::HeaderMap;
 use axum::http::header::SET_COOKIE;
 use axum::response::{IntoResponse, Response};
 use rackend_core::usecases::auth::Tokens;
+use rackend_core::usecases::sessions::RefreshScope;
 use serde_json::{Value, json};
 
 use super::{ApiResult, created, no_content, ok, str_field};
 use crate::AppState;
-use crate::ctx::{Ctx, REFRESH_COOKIE, clear_cookies, cookie, session_cookies, wants_cookies};
+use crate::ctx::{Ctx, clear_cookies};
 
 /// Path of the superuser refresh endpoint (refresh cookie scope).
 pub const SUPERUSER_REFRESH_PATH: &str = "/api/superusers/auth-refresh";
 
 fn token_response(state: &AppState, headers: &HeaderMap, t: Tokens) -> Response {
-    let body = json!({
-        "access_token": t.access_token, "token_type": "Bearer", "expires_in": t.expires_in,
-        "refresh_token": t.refresh_token, "record": t.superuser,
-    });
-    if !wants_cookies(headers) {
-        return ok(body);
-    }
-    let mut res =
-        ok(json!({ "token_type": "Cookie", "expires_in": t.expires_in, "record": t.superuser }));
-    for c in session_cookies(
-        &t.access_token,
-        &t.refresh_token,
-        t.expires_in,
-        t.refresh_expires_in,
-        SUPERUSER_REFRESH_PATH,
-        state.secure_cookies(),
-    ) {
-        res.headers_mut().append(SET_COOKIE, c);
-    }
-    res
+    super::users::token_response(state, headers, t, SUPERUSER_REFRESH_PATH)
 }
 
 /// `GET /api/info`: public instance information.
@@ -48,7 +30,7 @@ pub async fn info(State(state): State<AppState>) -> ApiResult {
         "version": app.version,
         "public_url": settings.public_url(),
         "needs_setup": needs_setup,
-        "auth_collections": [],
+        "auth_collections": app.auth_collections_info(),
     })))
 }
 
@@ -79,14 +61,14 @@ pub async fn login(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> ApiResult {
+    let email = str_field(&body, "email")?;
+    let account = format!("_superusers:{}", email.trim().to_lowercase());
+    super::users::check_login_limit(&state, &ctx, &account)?;
     let t = state
         .app()
-        .superuser_login(
-            &ctx,
-            str_field(&body, "email")?,
-            str_field(&body, "password")?,
-        )
+        .superuser_login(&ctx, email, str_field(&body, "password")?)
         .await?;
+    state.limits().login_succeeded(&account);
     Ok(token_response(&state, &headers, t))
 }
 
@@ -97,15 +79,11 @@ pub async fn refresh(
     headers: HeaderMap,
     body: Option<Json<Value>>,
 ) -> ApiResult {
-    let from_body = body
-        .as_ref()
-        .and_then(|b| b.get("refresh_token"))
-        .and_then(Value::as_str)
-        .map(str::to_owned);
-    let token = from_body
-        .or_else(|| cookie(&headers, REFRESH_COOKIE))
-        .ok_or_else(|| crate::problem::ApiError::from(rackend_core::Error::Unauthorized))?;
-    let t = state.app().superuser_refresh(&ctx, &token).await?;
+    let token = super::users::refresh_token(&headers, body.as_ref().map(|b| &b.0))?;
+    let t = state
+        .app()
+        .refresh(&ctx, RefreshScope::Superuser, &token)
+        .await?;
     Ok(token_response(&state, &headers, t))
 }
 

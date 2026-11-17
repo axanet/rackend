@@ -288,3 +288,58 @@ impl TypedRule {
         ex(&self.expr)
     }
 }
+
+impl TypedRule {
+    /// Whether any path of the rule reads `column` of a collection for which
+    /// `pred(collection_id, column)` holds. `root` is the collection the rule
+    /// is evaluated on.
+    pub fn reads_column(&self, root: Uuid, pred: &dyn Fn(Uuid, &str) -> bool) -> bool {
+        fn path(
+            fp: &FieldPath,
+            root: Uuid,
+            aliases: &[(Uuid, String)],
+            pred: &dyn Fn(Uuid, &str) -> bool,
+        ) -> bool {
+            let mut coll = match fp.root {
+                Root::Record => root,
+                Root::Alias(i) => aliases.get(i).map_or(root, |a| a.0),
+            };
+            for h in &fp.hops {
+                coll = match h {
+                    Hop::Forward { target, .. } => *target,
+                    Hop::Back { source, .. } => *source,
+                };
+            }
+            match &fp.leaf {
+                Leaf::Column { column, .. } | Leaf::Json { column, .. } => pred(coll, column),
+            }
+        }
+        fn op(
+            o: &TOperand,
+            root: Uuid,
+            aliases: &[(Uuid, String)],
+            pred: &dyn Fn(Uuid, &str) -> bool,
+        ) -> bool {
+            match &o.kind {
+                TKind::Path(fp) => path(fp, root, aliases, pred),
+                TKind::Func(_, args) => args.iter().any(|a| op(a, root, aliases, pred)),
+                _ => false,
+            }
+        }
+        fn ex(
+            e: &TExpr,
+            root: Uuid,
+            aliases: &[(Uuid, String)],
+            pred: &dyn Fn(Uuid, &str) -> bool,
+        ) -> bool {
+            match e {
+                TExpr::Or(v) | TExpr::And(v) => v.iter().any(|x| ex(x, root, aliases, pred)),
+                TExpr::Not(x) => ex(x, root, aliases, pred),
+                TExpr::Cmp { left, right, .. } => {
+                    op(left, root, aliases, pred) || op(right, root, aliases, pred)
+                }
+            }
+        }
+        ex(&self.expr, root, &self.aliases, pred)
+    }
+}

@@ -10,9 +10,11 @@ use uuid::Uuid;
 
 use super::audit::{entry, record_diff};
 use super::compiled::CompiledSchema;
-use super::{App, RequestCtx};
+use super::{App, Principal, RequestCtx};
 use crate::domain::field::{FieldKind, OnDelete};
-use crate::domain::record::{prepare_create, prepare_update};
+use crate::domain::record::{
+    normalize_auth_values, prepare_create, prepare_update, take_auth_input,
+};
 use crate::domain::{Actor, Collection, Field, Record, RuleOp};
 use crate::error::{FieldError, ValidationErrors};
 use crate::ports::{ReadTx, RecordQuery, Sort, StoreExt, WriteTx};
@@ -187,7 +189,15 @@ fn expand(
     req: &RequestValues,
     superuser: bool,
 ) -> Result<Vec<Map<String, Value>>> {
-    let mut out: Vec<Map<String, Value>> = records.iter().map(|r| r.to_json(c)).collect();
+    let viewer = req.auth.as_ref().map(|a| a.id.as_str());
+    let mut out: Vec<Map<String, Value>> = records
+        .iter()
+        .map(|r| {
+            let mut m = r.to_json(c);
+            redact_email(c, &mut m, viewer, superuser);
+            m
+        })
+        .collect();
     if tree.0.is_empty() || records.is_empty() {
         return Ok(out);
     }
@@ -430,16 +440,41 @@ struct WriteCtx {
 /// Outcome of a write: the record JSON if the caller may view it.
 pub type WriteOutcome = Option<Map<String, Value>>;
 
+/// Hides `email` of auth records from everyone but the owner and superusers,
+/// unless the collection makes emails visible (SPEC §8.6).
+fn redact_email(c: &Collection, m: &mut Map<String, Value>, viewer: Option<&str>, superuser: bool) {
+    if let Some(o) = c.auth()
+        && !superuser
+        && !o.email_visibility
+        && viewer != m.get("id").and_then(Value::as_str)
+    {
+        m.remove("email");
+    }
+}
+
+fn outcome(w: &WriteCtx, c: &Collection, r: &Record) -> Map<String, Value> {
+    let mut m = r.to_json(c);
+    redact_email(
+        c,
+        &mut m,
+        w.req.auth.as_ref().map(|a| a.id.as_str()),
+        w.superuser,
+    );
+    m
+}
+
 fn create_in_tx(
     tx: &mut dyn WriteTx,
     w: &WriteCtx,
     key: &str,
     body: &Map<String, Value>,
+    password_hash: Option<&str>,
 ) -> Result<WriteOutcome> {
     let c = collection(&w.compiled, key)?.clone();
     let rule = access(&w.compiled, &c, RuleOp::Create, w.superuser)?;
     let now = format_timestamp(w.now);
-    let plan = prepare_create(&c, body, &now).map_err(Error::Validation)?;
+    let mut plan = prepare_create(&c, body, &now).map_err(Error::Validation)?;
+    normalize_auth_values(&c, &mut plan.values);
     check_relations(tx, &w.compiled, &c, &plan.values)?;
     let record = Record {
         id: plan.id.unwrap_or_else(Uuid::now_v7),
@@ -449,6 +484,9 @@ fn create_in_tx(
     };
     tx.record_insert(&c, &record)?;
     let id = record.id.to_string();
+    if password_hash.is_some() {
+        tx.auth_password_set(&c, &id, password_hash)?;
+    }
     if let Some(rule) = rule
         && !tx.record_matches(&c, &id, rule, &body_values(&w.req, body))?
     {
@@ -463,7 +501,7 @@ fn create_in_tx(
         e.diff = Some(record_diff(&c, None, Some(&record.data)));
         tx.audit_insert(&e)?;
     }
-    Ok(viewable(tx, &w.compiled, &c, &id, &w.req, w.superuser)?.then(|| record.to_json(&c)))
+    Ok(viewable(tx, &w.compiled, &c, &id, &w.req, w.superuser)?.then(|| outcome(w, &c, &record)))
 }
 
 fn update_in_tx(
@@ -473,6 +511,7 @@ fn update_in_tx(
     id: &str,
     body: &Map<String, Value>,
     expected: Option<&str>,
+    password_hash: Option<&str>,
 ) -> Result<WriteOutcome> {
     let c = collection(&w.compiled, key)?.clone();
     let current = tx.record_get(&c, id)?.ok_or(Error::NotFound)?;
@@ -488,9 +527,17 @@ fn update_in_tx(
     }
     if_match(expected, &current)?;
     let now = format_timestamp(w.now);
-    let plan = prepare_update(&c, &current, body, &now).map_err(Error::Validation)?;
+    let mut plan = prepare_update(&c, &current, body, &now).map_err(Error::Validation)?;
+    normalize_auth_values(&c, &mut plan.changes);
     check_relations(tx, &w.compiled, &c, &plan.changes)?;
     tx.record_update(&c, id, &now, &plan.changes)?;
+    if password_hash.is_some() {
+        tx.auth_password_set(&c, id, password_hash)?;
+        let mut e = entry(&w.actor, "auth.password.change", w.now);
+        e.collection_id = Some(c.id.to_string());
+        e.record_id = Some(id.to_owned());
+        tx.audit_insert(&e)?;
+    }
     let mut after = current.clone();
     after.updated = now;
     for (k, v) in &plan.changes {
@@ -503,7 +550,7 @@ fn update_in_tx(
         e.diff = Some(record_diff(&c, Some(&current.data), Some(&after.data)));
         tx.audit_insert(&e)?;
     }
-    Ok(viewable(tx, &w.compiled, &c, id, &w.req, w.superuser)?.then(|| after.to_json(&c)))
+    Ok(viewable(tx, &w.compiled, &c, id, &w.req, w.superuser)?.then(|| outcome(w, &c, &after)))
 }
 
 fn delete_in_tx(
@@ -540,6 +587,16 @@ fn delete_record(
     cause: Option<&str>,
 ) -> Result<Option<String>> {
     tx.record_delete(c, &r.id.to_string())?;
+    if c.auth().is_some() {
+        // A deleted user loses every session and passkey (SPEC §11.5).
+        tx.sessions_revoke_for(
+            &r.id.to_string(),
+            None,
+            "user_deleted",
+            &format_timestamp(w.now),
+        )?;
+        tx.passkeys_delete_for(&r.id.to_string())?;
+    }
     if !c.options.audit_records {
         return Ok(None);
     }
@@ -674,6 +731,28 @@ impl App {
             None => None,
         };
         let sort = parse_sort(&c, p.sort.as_deref())?;
+        if !superuser {
+            let hidden = |cid: Uuid, col: &str| {
+                col == "email"
+                    && compiled
+                        .schema
+                        .by_id(cid)
+                        .and_then(|x| x.auth())
+                        .is_some_and(|o| !o.email_visibility)
+            };
+            let filters_email = filter
+                .as_ref()
+                .is_some_and(|f| f.reads_column(c.id, &hidden));
+            let sorts_email = sort
+                .iter()
+                .any(|s| matches!(s, Sort::Asc(x) | Sort::Desc(x) if hidden(c.id, x)));
+            if filters_email || sorts_email {
+                return Err(Error::BadRequest(
+                    "Emails of this collection are not visible; you cannot filter or sort by them."
+                        .into(),
+                ));
+            }
+        }
         let tree = parse_expand(p.expand.as_deref())?;
         let per_page = p.per_page.unwrap_or(30).clamp(1, MAX_PER_PAGE);
         let page = p.page.unwrap_or(1).max(1);
@@ -770,11 +849,62 @@ impl App {
         key: &str,
         body: Map<String, Value>,
     ) -> Result<WriteOutcome> {
+        let mut body = body;
+        let compiled = self.schema.get();
+        let c = collection(&compiled, key)?.clone();
+        let mut hash = None;
+        if let Some(opts) = c.auth() {
+            let input = take_auth_input(&c, &mut body).map_err(Error::Validation)?;
+            if !ctx.is_superuser() {
+                if !opts.signup_enabled {
+                    return Err(Error::Forbidden(
+                        "Sign-up is disabled for this collection.".into(),
+                    ));
+                }
+                if body.contains_key("email_verified") {
+                    return Err(Error::field(
+                        "email_verified",
+                        FieldError::new("read_only", "Only superusers can set this."),
+                    ));
+                }
+                if input.password.is_none() {
+                    return Err(Error::field(
+                        "password",
+                        FieldError::new("required", "Required."),
+                    ));
+                }
+            }
+            if let Some(pw) = input.password {
+                if body
+                    .get("email")
+                    .and_then(Value::as_str)
+                    .is_none_or(|e| e.trim().is_empty())
+                {
+                    return Err(Error::field(
+                        "email",
+                        FieldError::new("required", "Required for password sign-in."),
+                    ));
+                }
+                hash = Some(
+                    self.hash_new_password(&pw, opts.password_min_length)
+                        .await?,
+                );
+            }
+        }
         let w = self.write_ctx(ctx);
         let key = key.to_owned();
         self.store
-            .write(move |tx| create_in_tx(tx, &w, &key, &body))
+            .write(move |tx| create_in_tx(tx, &w, &key, &body, hash.as_deref()))
             .await
+    }
+
+    /// Checks the password policy and hashes it off the async threads.
+    pub(crate) async fn hash_new_password(&self, pw: &str, min_len: u32) -> Result<String> {
+        crate::auth::password::check_policy(pw, min_len as usize)
+            .map_err(|e| Error::field("password", e))?;
+        let pw = pw.to_owned();
+        self.blocking(move || crate::auth::password::hash(&pw))
+            .await?
     }
 
     /// Updates a record (partial, with modifiers).
@@ -786,11 +916,76 @@ impl App {
         body: Map<String, Value>,
         if_match: Option<String>,
     ) -> Result<WriteOutcome> {
+        let mut body = body;
+        let compiled = self.schema.get();
+        let c = collection(&compiled, key)?.clone();
+        let mut hash = None;
+        if let Some(opts) = c.auth() {
+            let input = take_auth_input(&c, &mut body).map_err(Error::Validation)?;
+            if !ctx.is_superuser() {
+                for k in ["email", "email_verified"] {
+                    if body.contains_key(k) {
+                        return Err(Error::field(
+                            k,
+                            FieldError::new("read_only", "Only superusers can change this."),
+                        ));
+                    }
+                }
+            }
+            if let Some(pw) = input.password {
+                if !ctx.is_superuser() {
+                    let (c2, id2) = (c.clone(), id.to_owned());
+                    let current = self
+                        .store
+                        .read(move |tx| tx.auth_password_hash(&c2, &id2))
+                        .await?;
+                    if current.is_some() {
+                        let old = input.old_password.unwrap_or_default();
+                        if !self.verify_password(current, &old).await? {
+                            return Err(Error::field(
+                                "old_password",
+                                FieldError::new("invalid", "The current password is wrong."),
+                            ));
+                        }
+                    }
+                }
+                hash = Some(
+                    self.hash_new_password(&pw, opts.password_min_length)
+                        .await?,
+                );
+            }
+        }
         let w = self.write_ctx(ctx);
-        let (key, id) = (key.to_owned(), id.to_owned());
-        self.store
-            .write(move |tx| update_in_tx(tx, &w, &key, &id, &body, if_match.as_deref()))
-            .await
+        let (key2, id2) = (key.to_owned(), id.to_owned());
+        let changed_password = hash.is_some();
+        let out = self
+            .store
+            .write(move |tx| {
+                update_in_tx(
+                    tx,
+                    &w,
+                    &key2,
+                    &id2,
+                    &body,
+                    if_match.as_deref(),
+                    hash.as_deref(),
+                )
+            })
+            .await?;
+        if changed_password {
+            // Other sessions end; the caller's own session (if it is this user) stays.
+            let keep = match &ctx.principal {
+                Principal::User {
+                    id: uid,
+                    session_id,
+                    ..
+                } if uid == id => Some(session_id.clone()),
+                _ => None,
+            };
+            self.revoke_all_for(id, keep.as_deref(), "password_change", ctx.now)
+                .await?;
+        }
+        Ok(out)
     }
 
     /// Deletes a record, applying `on_delete` of incoming relations.
@@ -805,7 +1000,11 @@ impl App {
         let (key, id) = (key.to_owned(), id.to_owned());
         self.store
             .write(move |tx| delete_in_tx(tx, &w, &key, &id, if_match.as_deref()))
-            .await
+            .await?;
+        // Sessions of deleted users (also via cascades) are revoked in the
+        // transaction; drop the cache so their tokens fail immediately.
+        self.sessions.invalidate_all();
+        Ok(())
     }
 
     /// Runs sub-requests in one write transaction (SPEC §10.5). Any failure
@@ -886,16 +1085,23 @@ fn run_batch_item(tx: &mut dyn WriteTx, w: &WriteCtx, item: &BatchItem) -> Resul
             )));
         }
     };
+    // Auth records carry passwords, verification state and sessions; their
+    // writes go through the record endpoints only (ADR 0011).
+    if collection(&w.compiled, key)?.auth().is_some() {
+        return Err(Error::BadRequest(
+            "Batch requests cannot write auth collections; use the record endpoints.".into(),
+        ));
+    }
     match (item.method.to_ascii_uppercase().as_str(), id) {
         ("POST", None) => {
-            let out = create_in_tx(tx, w, key, &item.body)?;
+            let out = create_in_tx(tx, w, key, &item.body, None)?;
             Ok(BatchResult {
                 status: if out.is_some() { 201 } else { 204 },
                 body: out.map(Value::Object),
             })
         }
         ("PATCH", Some(id)) => {
-            let out = update_in_tx(tx, w, key, id, &item.body, None)?;
+            let out = update_in_tx(tx, w, key, id, &item.body, None, None)?;
             Ok(BatchResult {
                 status: if out.is_some() { 200 } else { 204 },
                 body: out.map(Value::Object),

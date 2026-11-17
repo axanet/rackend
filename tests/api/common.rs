@@ -33,10 +33,16 @@ pub async fn start_empty() -> (Arc<App>, Router, tempfile::TempDir) {
         time::OffsetDateTime::now_utc(),
     )
     .unwrap();
-    let app = rackend::wiring::app(SqliteStore::new(db), "0.0.0-test", None)
-        .await
-        .unwrap();
-    let router = rackend::wiring::router(Arc::clone(&app), false);
+    let app = rackend::wiring::app(
+        SqliteStore::new(db),
+        rackend::wiring::AppOptions {
+            version: "0.0.0-test",
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let router = rackend::wiring::router(Arc::clone(&app), rackend_http::HttpOptions::default());
     (app, router, dir)
 }
 

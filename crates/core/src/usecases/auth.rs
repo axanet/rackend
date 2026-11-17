@@ -10,10 +10,8 @@ use uuid::Uuid;
 
 use super::audit::entry;
 use super::{App, Principal, RequestCtx};
-use crate::auth::token::{
-    TokenKind, ct_eq, hash_token, parse_session_token, random_token, session_token,
-};
-use crate::auth::{SessionRow, SubjectType, Superuser, password};
+use crate::auth::token::{hash_token, random_token};
+use crate::auth::{Superuser, password};
 use crate::domain::Actor;
 use crate::error::{FieldError, ValidationErrors};
 use crate::ports::{SettingRow, StoreExt, WriteTx};
@@ -49,27 +47,27 @@ pub struct Tokens {
     pub refresh_expires_in: i64,
     /// The session.
     pub session_id: String,
-    /// The superuser.
-    pub superuser: Value,
+    /// The authenticated record (superuser or auth record).
+    pub record: Value,
 }
 
 /// A cached, resolved access token.
 #[derive(Debug, Clone)]
-struct CachedSession {
-    principal: Principal,
-    access_hash: String,
-    access_expires: String,
-    at: Instant,
+pub(crate) struct CachedSession {
+    pub(crate) principal: Principal,
+    pub(crate) access_hash: String,
+    pub(crate) access_expires: String,
+    pub(crate) at: Instant,
 }
 
 /// In-memory session lookup cache (SPEC §11.5) and the refresh grace window.
 #[derive(Debug, Default)]
 pub struct SessionCache {
-    sessions: Mutex<HashMap<String, CachedSession>>,
+    pub(crate) sessions: Mutex<HashMap<String, CachedSession>>,
     /// prev refresh hash → (tokens issued for it, when).
-    grace: Mutex<HashMap<String, (Tokens, Instant)>>,
+    pub(crate) grace: Mutex<HashMap<String, (Tokens, Instant)>>,
     /// session id → last `last_seen` write.
-    seen: Mutex<HashMap<String, Instant>>,
+    pub(crate) seen: Mutex<HashMap<String, Instant>>,
 }
 
 impl SessionCache {
@@ -87,12 +85,12 @@ impl SessionCache {
         }
     }
 
-    fn get(&self, id: &str) -> Option<CachedSession> {
+    pub(crate) fn get(&self, id: &str) -> Option<CachedSession> {
         let m = self.sessions.lock().ok()?;
         m.get(id).filter(|c| c.at.elapsed() < CACHE_TTL).cloned()
     }
 
-    fn put(&self, id: String, c: CachedSession) {
+    pub(crate) fn put(&self, id: String, c: CachedSession) {
         if let Ok(mut m) = self.sessions.lock() {
             if m.len() >= CACHE_MAX {
                 m.retain(|_, v| v.at.elapsed() < CACHE_TTL);
@@ -104,7 +102,7 @@ impl SessionCache {
         }
     }
 
-    fn should_touch(&self, id: &str) -> bool {
+    pub(crate) fn should_touch(&self, id: &str) -> bool {
         let Ok(mut m) = self.seen.lock() else {
             return false;
         };
@@ -121,11 +119,11 @@ impl SessionCache {
     }
 }
 
-fn superuser_json(s: &Superuser) -> Value {
+pub(crate) fn superuser_json(s: &Superuser) -> Value {
     json!({ "id": s.id, "email": s.email, "created": s.created, "updated": s.updated, "collection_name": "_superusers" })
 }
 
-fn normalize_email(email: &str) -> Result<String> {
+pub(crate) fn normalize_email(email: &str) -> Result<String> {
     let e = email.trim().to_lowercase();
     let ok = e.len() <= 254
         && e.split_once('@')
@@ -139,43 +137,7 @@ fn normalize_email(email: &str) -> Result<String> {
     Ok(e)
 }
 
-fn new_session(s: &Superuser, ctx: &RequestCtx, method: &str) -> (SessionRow, Tokens) {
-    let id = Uuid::now_v7().to_string();
-    let access = session_token(TokenKind::Access, &id);
-    let refresh = session_token(TokenKind::Refresh, &id);
-    let now = ctx.now;
-    let row = SessionRow {
-        id: id.clone(),
-        family_id: id.clone(),
-        subject_type: SubjectType::Superuser,
-        collection_id: None,
-        user_id: s.id.clone(),
-        client_id: None,
-        auth_method: method.to_owned(),
-        access_hash: hash_token(&access),
-        access_expires: format_timestamp(now + SUPERUSER_ACCESS_TTL),
-        refresh_hash: Some(hash_token(&refresh)),
-        prev_refresh_hash: None,
-        refresh_expires: Some(format_timestamp(now + SUPERUSER_REFRESH_TTL)),
-        created: format_timestamp(now),
-        last_seen: format_timestamp(now),
-        revoked_at: None,
-        revoked_reason: None,
-        ip: ctx.ip.clone(),
-        user_agent: ctx.user_agent.clone(),
-    };
-    let tokens = Tokens {
-        access_token: access,
-        refresh_token: refresh,
-        expires_in: SUPERUSER_ACCESS_TTL.whole_seconds(),
-        refresh_expires_in: SUPERUSER_REFRESH_TTL.whole_seconds(),
-        session_id: id,
-        superuser: superuser_json(s),
-    };
-    (row, tokens)
-}
-
-fn audit_auth(
+pub(crate) fn audit_auth(
     tx: &mut dyn WriteTx,
     actor: &Actor,
     action: &str,
@@ -328,7 +290,11 @@ impl App {
                 e.diff = Some(json!({ "app.public_url": { "before": before, "after": url } }));
                 tx.audit_insert(&e)?;
 
-                let (row, tokens) = new_session(&s, &ctx2, "password");
+                let (row, tokens) = super::sessions::new_session(
+                    &super::sessions::Subject::superuser(&s),
+                    &ctx2,
+                    "password",
+                );
                 tx.session_insert(&row)?;
                 audit_auth(
                     tx,
@@ -342,284 +308,6 @@ impl App {
             .await?;
         self.reload_settings().await?;
         Ok(tokens)
-    }
-
-    /// Superuser password login. Unknown emails take as long as known ones.
-    pub async fn superuser_login(&self, ctx: &RequestCtx, email: &str, pw: &str) -> Result<Tokens> {
-        let email = email.trim().to_lowercase();
-        let lookup = email.clone();
-        let found = self
-            .store
-            .read(move |tx| tx.superuser_by_email(&lookup))
-            .await?;
-        let pw_owned = pw.to_owned();
-        let ok = match &found {
-            Some(s) => {
-                let h = s.password_hash.clone();
-                self.blocking(move || password::verify(&pw_owned, &h))
-                    .await?
-            }
-            None => {
-                self.blocking(move || password::dummy_verify(&pw_owned))
-                    .await?;
-                false
-            }
-        };
-        let ctx2 = ctx.clone();
-        let Some(s) = found.filter(|_| ok) else {
-            // Failed logins are audited in their own small transaction.
-            self.store
-                .write(move |tx| {
-                    audit_auth(
-                        tx,
-                        &ctx2.actor(),
-                        "auth.login.failure",
-                        ctx2.now,
-                        json!({ "subject": "superuser", "email": email }),
-                    )
-                })
-                .await?;
-            return Err(Error::Unauthorized);
-        };
-        self.store
-            .write(move |tx| {
-                let (row, tokens) = new_session(&s, &ctx2, "password");
-                tx.session_insert(&row)?;
-                let actor = Actor {
-                    kind: crate::domain::ActorType::Superuser,
-                    id: Some(s.id.clone()),
-                    label: Some(s.email.clone()),
-                    ..ctx2.actor()
-                };
-                audit_auth(
-                    tx,
-                    &actor,
-                    "auth.login.success",
-                    ctx2.now,
-                    json!({ "method": "password", "session": row.id }),
-                )?;
-                Ok(tokens)
-            })
-            .await
-    }
-
-    /// Rotates a refresh token (SPEC §11.5): reuse of the previous token
-    /// revokes the session, except once within the 10 s grace window, which
-    /// returns the same new pair.
-    pub async fn superuser_refresh(&self, ctx: &RequestCtx, refresh_token: &str) -> Result<Tokens> {
-        let session_id = parse_session_token(TokenKind::Refresh, refresh_token)
-            .ok_or(Error::Unauthorized)?
-            .to_owned();
-        let presented = hash_token(refresh_token);
-        if let Some(tokens) = self.take_grace(&presented) {
-            return Ok(tokens);
-        }
-        let ctx2 = ctx.clone();
-        let sid = session_id.clone();
-        let p2 = presented.clone();
-        let result = self
-            .store
-            .write(
-                move |tx| -> Result<std::result::Result<(Tokens, String), bool>> {
-                    let now_s = format_timestamp(ctx2.now);
-                    let Some(mut row) = tx.session_get(&sid)? else {
-                        return Ok(Err(false));
-                    };
-                    if row.revoked_at.is_some() || row.subject_type != SubjectType::Superuser {
-                        return Ok(Err(false));
-                    }
-                    if row
-                        .refresh_expires
-                        .as_deref()
-                        .is_none_or(|e| e <= now_s.as_str())
-                    {
-                        return Ok(Err(false));
-                    }
-                    let current = row.refresh_hash.clone().unwrap_or_default();
-                    if !ct_eq(&current, &p2) {
-                        if row
-                            .prev_refresh_hash
-                            .as_deref()
-                            .is_some_and(|prev| ct_eq(prev, &p2))
-                        {
-                            // Reuse of a rotated token: assume theft, revoke.
-                            row.revoked_at = Some(now_s.clone());
-                            row.revoked_reason = Some("refresh_reuse".into());
-                            tx.session_update(&row)?;
-                            let actor = Actor {
-                                kind: crate::domain::ActorType::Superuser,
-                                id: Some(row.user_id.clone()),
-                                ..ctx2.actor()
-                            };
-                            audit_auth(
-                                tx,
-                                &actor,
-                                "auth.refresh_reuse",
-                                ctx2.now,
-                                json!({ "session": row.id }),
-                            )?;
-                            return Ok(Err(true));
-                        }
-                        return Ok(Err(false));
-                    }
-                    let s = tx
-                        .superuser_by_id(&row.user_id)?
-                        .ok_or(Error::Unauthorized)?;
-                    let access = session_token(TokenKind::Access, &row.id);
-                    let refresh = session_token(TokenKind::Refresh, &row.id);
-                    row.prev_refresh_hash = Some(current);
-                    row.refresh_hash = Some(hash_token(&refresh));
-                    row.access_hash = hash_token(&access);
-                    row.access_expires = format_timestamp(ctx2.now + SUPERUSER_ACCESS_TTL);
-                    row.refresh_expires = Some(format_timestamp(ctx2.now + SUPERUSER_REFRESH_TTL));
-                    row.last_seen = now_s;
-                    tx.session_update(&row)?;
-                    Ok(Ok((
-                        Tokens {
-                            access_token: access,
-                            refresh_token: refresh,
-                            expires_in: SUPERUSER_ACCESS_TTL.whole_seconds(),
-                            refresh_expires_in: SUPERUSER_REFRESH_TTL.whole_seconds(),
-                            session_id: row.id.clone(),
-                            superuser: superuser_json(&s),
-                        },
-                        p2,
-                    )))
-                },
-            )
-            .await?;
-        match result {
-            Ok((tokens, prev_hash)) => {
-                self.sessions.invalidate(&session_id);
-                if let Ok(mut g) = self.sessions.grace.lock() {
-                    g.retain(|_, (_, at)| at.elapsed() < REFRESH_GRACE);
-                    g.insert(prev_hash, (tokens.clone(), Instant::now()));
-                }
-                Ok(tokens)
-            }
-            Err(revoked) => {
-                if revoked {
-                    self.sessions.invalidate(&session_id);
-                }
-                Err(Error::Unauthorized)
-            }
-        }
-    }
-
-    fn take_grace(&self, prev_hash: &str) -> Option<Tokens> {
-        let mut g = self.sessions.grace.lock().ok()?;
-        let (tokens, at) = g.remove(prev_hash)?;
-        (at.elapsed() < REFRESH_GRACE).then_some(tokens)
-    }
-
-    /// Revokes the caller's session.
-    pub async fn logout(&self, ctx: &RequestCtx) -> Result<()> {
-        let session_id = match &ctx.principal {
-            Principal::Superuser { session_id, .. } | Principal::User { session_id, .. } => {
-                session_id.clone()
-            }
-            Principal::Anonymous => return Err(Error::Unauthorized),
-        };
-        let ctx2 = ctx.clone();
-        let sid = session_id.clone();
-        self.store
-            .write(move |tx| {
-                if let Some(mut row) = tx.session_get(&sid)? {
-                    row.revoked_at = Some(format_timestamp(ctx2.now));
-                    row.revoked_reason = Some("logout".into());
-                    tx.session_update(&row)?;
-                    audit_auth(
-                        tx,
-                        &ctx2.actor(),
-                        "auth.logout",
-                        ctx2.now,
-                        json!({ "session": sid }),
-                    )?;
-                }
-                Ok(())
-            })
-            .await?;
-        self.sessions.invalidate(&session_id);
-        Ok(())
-    }
-
-    /// Resolves an access token to a principal. Revoked sessions fail
-    /// immediately (the cache is invalidated on revocation).
-    pub async fn authenticate(&self, access_token: &str) -> Result<Principal> {
-        let session_id = parse_session_token(TokenKind::Access, access_token)
-            .ok_or(Error::Unauthorized)?
-            .to_owned();
-        let presented = hash_token(access_token);
-        let now = format_timestamp(self.clock.now());
-        if let Some(c) = self.sessions.get(&session_id) {
-            if ct_eq(&c.access_hash, &presented) && c.access_expires.as_str() > now.as_str() {
-                self.touch(&session_id);
-                return Ok(c.principal);
-            }
-            return Err(Error::Unauthorized);
-        }
-        let sid = session_id.clone();
-        let found = self
-            .store
-            .read(move |tx| {
-                let Some(row) = tx.session_get(&sid)? else {
-                    return Ok(None);
-                };
-                if row.subject_type != SubjectType::Superuser {
-                    return Ok(None);
-                }
-                let s = tx.superuser_by_id(&row.user_id)?;
-                Ok(s.map(|s| (row, s)))
-            })
-            .await?;
-        let Some((row, s)) = found else {
-            return Err(Error::Unauthorized);
-        };
-        if row.revoked_at.is_some() {
-            return Err(Error::Unauthorized);
-        }
-        let principal = Principal::Superuser {
-            id: s.id,
-            email: s.email,
-            session_id: row.id.clone(),
-        };
-        self.sessions.put(
-            row.id.clone(),
-            CachedSession {
-                principal: principal.clone(),
-                access_hash: row.access_hash.clone(),
-                access_expires: row.access_expires.clone(),
-                at: Instant::now(),
-            },
-        );
-        if !ct_eq(&row.access_hash, &presented) || row.access_expires.as_str() <= now.as_str() {
-            return Err(Error::Unauthorized);
-        }
-        self.touch(&row.id);
-        Ok(principal)
-    }
-
-    /// Updates `last_seen` at most once per minute per session, in the background.
-    fn touch(&self, session_id: &str) {
-        if !self.sessions.should_touch(session_id) {
-            return;
-        }
-        let store = self.store.clone();
-        let (sid, now) = (session_id.to_owned(), format_timestamp(self.clock.now()));
-        self.spawner.spawn(
-            "session.last_seen",
-            Box::pin(async move {
-                let _ = store
-                    .write(move |tx| {
-                        if let Some(mut row) = tx.session_get(&sid)? {
-                            row.last_seen = now;
-                            tx.session_update(&row)?;
-                        }
-                        Ok(())
-                    })
-                    .await;
-            }),
-        );
     }
 
     /// All superusers.

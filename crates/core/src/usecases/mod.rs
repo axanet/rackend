@@ -6,8 +6,12 @@ pub mod auth;
 pub mod collections;
 pub mod compiled;
 pub mod ctx;
+pub mod first_boot;
 pub mod jobs;
+pub mod passkeys;
 pub mod records;
+pub mod secrets;
+pub mod sessions;
 pub mod settings;
 
 use std::sync::{Arc, RwLock};
@@ -17,6 +21,7 @@ use tokio::sync::Semaphore;
 use crate::Result;
 use crate::domain::Schema;
 use crate::ports::{Clock, Spawner, Store, StoreExt};
+use crate::secrets::SecretBox;
 use crate::settings::Settings;
 
 pub use compiled::{CompiledSchema, SchemaCache};
@@ -42,6 +47,21 @@ pub struct App {
     pub version: &'static str,
     /// `RACKEND_PUBLIC_URL`: overrides `app.public_url` (SPEC §5.2).
     pub public_url_override: Option<String>,
+    /// Encrypts secrets at rest (SPEC §17.4).
+    pub secrets: SecretBox,
+    /// WebAuthn ceremony state (5 min TTL, SPEC §11.3).
+    pub(crate) ceremonies: passkeys::Ceremonies,
+}
+
+/// Startup configuration of the app.
+#[derive(Debug, Clone)]
+pub struct AppConfig {
+    /// Binary version.
+    pub version: &'static str,
+    /// `RACKEND_PUBLIC_URL`.
+    pub public_url_override: Option<String>,
+    /// The secrets box (see [`secrets::init`]).
+    pub secrets: SecretBox,
 }
 
 impl App {
@@ -50,8 +70,7 @@ impl App {
         store: Arc<dyn Store>,
         spawner: Arc<dyn Spawner>,
         clock: Arc<dyn Clock>,
-        version: &'static str,
-        public_url_override: Option<String>,
+        cfg: AppConfig,
     ) -> Result<Arc<Self>> {
         let cpus = std::thread::available_parallelism().map_or(4, |n| n.get());
         let app = Arc::new(Self {
@@ -62,8 +81,10 @@ impl App {
             settings: RwLock::new(Arc::new(Settings::default())),
             sessions: auth::SessionCache::default(),
             hash_permits: Semaphore::new(cpus),
-            version,
-            public_url_override,
+            version: cfg.version,
+            public_url_override: cfg.public_url_override,
+            secrets: cfg.secrets,
+            ceremonies: passkeys::Ceremonies::default(),
         });
         app.reload_settings().await?;
         app.reload_schema().await?;

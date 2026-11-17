@@ -52,6 +52,14 @@ base64 = "0.23"
 argon2 = "0.6"
 rand = { version = "0.10", default-features = false, features = ["std", "sys_rng"] }
 subtle = "2.6"
+hmac = "0.13"
+chacha20poly1305 = "0.11"
+# Pinned to the release candidate webauthn-rs (crypto-glue) requires, so the
+# tree has one rsa (ADR 0011).
+rsa = { version = "=0.10.0-rc.19", features = ["sha2"] }
+p256 = { version = "0.14", features = ["ecdsa", "pkcs8"] }
+webauthn-rs = { version = "0.6.2", features = ["danger-allow-state-serialisation", "conditional-ui"] }
+governor = "0.10"
 # ADR 0007: pure-computation crates allowed in core
 regex = "1.13"
 fs4 = { version = "1.1", features = ["sync"] }

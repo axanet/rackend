@@ -152,10 +152,12 @@ impl FromRequestParts<AppState> for Ctx {
         } else {
             Principal::Anonymous
         };
-        let ip = parts
+        let peer = parts
             .extensions
             .get::<ConnectInfo<SocketAddr>>()
-            .map(|c| c.0.ip().to_string());
+            .map(|c| c.0.ip());
+        let ip = crate::net::client_ip(peer, &parts.headers, &state.trusted_proxies())
+            .map(|ip| ip.to_string());
         Ok(Ctx(RequestCtx {
             principal,
             ip,

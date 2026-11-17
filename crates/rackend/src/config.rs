@@ -29,17 +29,19 @@ pub struct Config {
     pub public_url: Option<String>,
     /// `RACKEND_SUPERUSER_EMAIL` / `_PASSWORD`: headless first superuser.
     pub superuser: Option<(String, String)>,
+    /// `RACKEND_ENCRYPTION_KEY`: key for secrets at rest (SPEC §17.4).
+    pub encryption_key: Option<[u8; 32]>,
+    /// `RACKEND_RESET_SECRETS`: discard secrets that cannot be decrypted.
+    pub reset_secrets: bool,
+    /// `RACKEND_TRUSTED_PROXIES`: CIDRs whose `X-Forwarded-For` is trusted.
+    pub trusted_proxies: Vec<rackend_http::net::Cidr>,
     /// Variables that are recognised but not used by this version yet.
     pub not_yet_supported: Vec<&'static str>,
 }
 
 /// Variables read in later milestones. Setting them now is not an error, but
 /// the operator is told they have no effect yet.
-const FUTURE_VARS: &[&str] = &[
-    "RACKEND_ENCRYPTION_KEY",
-    "RACKEND_TRUSTED_PROXIES",
-    "RACKEND_OTLP_ENDPOINT",
-];
+const FUTURE_VARS: &[&str] = &["RACKEND_OTLP_ENDPOINT"];
 
 impl Config {
     /// Reads the configuration from the process environment.
@@ -98,6 +100,24 @@ impl Config {
                 bail!("set both RACKEND_SUPERUSER_EMAIL and RACKEND_SUPERUSER_PASSWORD, or neither")
             }
         };
+        let encryption_key = match val("RACKEND_ENCRYPTION_KEY") {
+            None => None,
+            Some(k) => Some(rackend_core::secrets::SecretBox::parse_key(&k).map_err(|_| {
+                anyhow::anyhow!(
+                    "RACKEND_ENCRYPTION_KEY: expected 32 bytes in base64, e.g. the output of `openssl rand -base64 32`"
+                )
+            })?),
+        };
+        let reset_secrets = match val("RACKEND_RESET_SECRETS").as_deref() {
+            None => false,
+            Some(v) => parse_bool(v)
+                .with_context(|| format!("RACKEND_RESET_SECRETS: invalid boolean {v:?}"))?,
+        };
+        let trusted_proxies = match val("RACKEND_TRUSTED_PROXIES") {
+            None => Vec::new(),
+            Some(v) => rackend_http::net::Cidr::parse_list(&v)
+                .map_err(|e| anyhow::anyhow!("RACKEND_TRUSTED_PROXIES: {e}"))?,
+        };
         let not_yet_supported = FUTURE_VARS
             .iter()
             .copied()
@@ -112,6 +132,9 @@ impl Config {
             sqlite_synchronous,
             public_url,
             superuser,
+            encryption_key,
+            reset_secrets,
+            trusted_proxies,
             not_yet_supported,
         })
     }
@@ -170,5 +193,17 @@ mod tests {
         assert_eq!(c.not_yet_supported, vec!["RACKEND_OTLP_ENDPOINT"]);
         assert!(cfg(&[("RACKEND_SUPERUSER_EMAIL", "a@b.c")]).is_err());
         assert!(cfg(&[("RACKEND_PUBLIC_URL", "ftp://x")]).is_err());
+        assert!(cfg(&[("RACKEND_ENCRYPTION_KEY", "short")]).is_err());
+        assert!(cfg(&[("RACKEND_TRUSTED_PROXIES", "10.0.0.0/33")]).is_err());
+        let c = cfg(&[
+            (
+                "RACKEND_ENCRYPTION_KEY",
+                "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+            ),
+            ("RACKEND_TRUSTED_PROXIES", "10.0.0.0/8, ::1"),
+        ])
+        .unwrap();
+        assert!(c.encryption_key.is_some());
+        assert_eq!(c.trusted_proxies.len(), 2);
     }
 }

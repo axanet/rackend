@@ -707,7 +707,8 @@ async fn export_import_round_trip() {
         None,
     )
     .await;
-    assert_eq!(export.as_array().unwrap().len(), 2);
+    // The default `users` auth collection plus the blog.
+    assert_eq!(export.as_array().unwrap().len(), 3);
     let (s, _, out) = call(
         &t.router,
         Method::POST,
@@ -719,7 +720,13 @@ async fn export_import_round_trip() {
     assert_eq!(s, StatusCode::OK, "{out}");
     assert_eq!(out["dry_run"], true);
     let mut changed = export.clone();
-    changed[1]["rules"]["list"] = json!(null);
+    let posts = export
+        .as_array()
+        .unwrap()
+        .iter()
+        .position(|c| c["name"] == "posts")
+        .unwrap();
+    changed[posts]["rules"]["list"] = json!(null);
     changed
         .as_array_mut()
         .unwrap()
@@ -741,7 +748,7 @@ async fn export_import_round_trip() {
         None,
     )
     .await;
-    assert_eq!(list["total_items"], 3);
+    assert_eq!(list["total_items"], 4);
     let (s, _, _) = call(
         &t.router,
         Method::GET,

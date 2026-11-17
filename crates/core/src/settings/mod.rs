@@ -13,7 +13,8 @@ pub fn defaults() -> Value {
         "app": { "name": "rackend", "public_url": null, "logo": null, "primary_color": null, "support_email": null },
         "security": {
             "cors_origins": [], "app_redirect_uris": [], "trusted_proxies": [],
-            "superuser_require_passkey": false
+            "superuser_require_passkey": false,
+            "rate_limits": { "global_ip_per_min": 600, "login_ip_per_min": 20, "login_account_per_15min": 10 }
         },
         "audit": { "retention_days": 365 },
         "logs": { "retention_days": 7, "min_status": 0, "sample_rate": 1.0 },
@@ -172,6 +173,10 @@ impl Settings {
                     (Value::Bool(_), Value::Bool(_)) | (Value::String(_), Value::String(_)) => true,
                     (Value::Number(dn), Value::Number(n)) => !dn.is_u64() || n.is_u64(),
                     (Value::Array(_), Value::Array(a)) => a.iter().all(Value::is_string),
+                    // Nested objects of counters: known keys, non-negative integers.
+                    (Value::Object(dm), Value::Object(m)) => {
+                        m.iter().all(|(k, x)| dm.contains_key(k) && x.is_u64())
+                    }
                     _ => false,
                 };
                 if !ok {
@@ -185,7 +190,17 @@ impl Settings {
                     errs.add(path, e);
                     continue;
                 }
-                merged.insert(k.clone(), v.clone());
+                match (merged.get_mut(k), v) {
+                    // Partial updates of nested objects keep the other keys.
+                    (Some(Value::Object(cur)), Value::Object(m)) => {
+                        for (mk, mv) in m {
+                            cur.insert(mk.clone(), mv.clone());
+                        }
+                    }
+                    _ => {
+                        merged.insert(k.clone(), v.clone());
+                    }
+                }
             }
             out.push((section.clone(), merged));
         }
@@ -214,8 +229,30 @@ pub fn normalize_public_url(url: &str) -> Result<String, FieldError> {
     Ok(url.to_owned())
 }
 
+/// Whether `s` is an IP address or a CIDR network (`10.0.0.0/8`).
+fn is_cidr(s: &str) -> bool {
+    let (ip, prefix) = s
+        .trim()
+        .split_once('/')
+        .map_or((s.trim(), None), |(a, b)| (a, Some(b)));
+    let Ok(ip) = ip.parse::<std::net::IpAddr>() else {
+        return false;
+    };
+    let max = if ip.is_ipv4() { 32 } else { 128 };
+    prefix.is_none_or(|p| p.parse::<u8>().is_ok_and(|p| p <= max))
+}
+
 fn check_value(section: &str, key: &str, v: &Value) -> Result<(), FieldError> {
     match (section, key) {
+        ("security", "trusted_proxies")
+            if v.as_array()
+                .is_some_and(|a| a.iter().any(|x| !x.as_str().is_some_and(is_cidr))) =>
+        {
+            Err(FieldError::new(
+                "invalid_cidr",
+                "Each entry must be an IP address or a CIDR network such as 10.0.0.0/8.",
+            ))
+        }
         ("app", "public_url") if v.is_string() => {
             normalize_public_url(v.as_str().unwrap_or_default()).map(drop)
         }

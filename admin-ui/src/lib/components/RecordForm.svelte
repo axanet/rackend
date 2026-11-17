@@ -26,6 +26,8 @@
 	let values = $state<Record<string, unknown>>(
 		Object.fromEntries(collection.fields.filter(editable).map((f) => [f.name, toInput(f, record?.[f.name])]))
 	);
+	const isAuth = $derived(collection.type === 'auth');
+	let password = $state('');
 	let error = $state<ApiError | null>(null);
 	let saving = $state(false);
 	let dialog = $state<HTMLDialogElement>();
@@ -54,6 +56,7 @@
 					out[f.name] = v === '' && f.type !== 'text' ? null : v;
 			}
 		}
+		if (isAuth && password !== '') out.password = password;
 		return out;
 	}
 
@@ -143,6 +146,24 @@
 					</label>
 				{/if}
 			{/each}
+			{#if isAuth}
+				{@const err = error?.field('password')}
+				<label class="field">
+					<span class="name">password{record ? '' : ' *'} <span class="chip">hidden</span></span>
+					<input
+						type="password"
+						autocomplete="new-password"
+						bind:value={password}
+						required={!record}
+						placeholder={record ? 'leave empty to keep the current password' : ''}
+						aria-invalid={err ? 'true' : undefined}
+						aria-describedby="password-hint"
+					/>
+					<span id="password-hint" class={err ? 'error-text' : 'hint'}>
+						{err ?? (record ? 'Setting a new password signs the user out everywhere.' : 'Stored as an Argon2id hash; never shown again.')}
+					</span>
+				</label>
+			{/if}
 		</div>
 		<footer>
 			<button type="button" class="btn" onclick={() => dialog?.close()}>Cancel</button>

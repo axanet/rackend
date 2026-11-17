@@ -35,7 +35,26 @@ pub fn dummy_verify(password: &str) {
     let _ = verify(password, h);
 }
 
-/// Checks the length policy: `min_len..=256` characters, no composition rules.
+/// The bundled list of the 10,000 most common passwords (SecLists, MIT;
+/// ADR 0011), lowercased.
+fn common_passwords() -> &'static std::collections::HashSet<String> {
+    static LIST: OnceLock<std::collections::HashSet<String>> = OnceLock::new();
+    LIST.get_or_init(|| {
+        include_str!("../../data/common-passwords.txt")
+            .lines()
+            .map(|l| l.trim().to_lowercase())
+            .filter(|l| !l.is_empty())
+            .collect()
+    })
+}
+
+/// Whether `password` is on the common-password list (case-insensitive).
+pub fn is_common(password: &str) -> bool {
+    common_passwords().contains(&password.to_lowercase())
+}
+
+/// Checks the policy (SPEC §11.2): `min_len..=256` characters, not on the
+/// common-password list, no composition rules.
 pub fn check_policy(password: &str, min_len: usize) -> Result<(), crate::error::FieldError> {
     let n = password.chars().count();
     if n < min_len {
@@ -51,6 +70,12 @@ pub fn check_policy(password: &str, min_len: usize) -> Result<(), crate::error::
             format!("Must be at most {MAX_LEN} characters."),
         )
         .param("max", MAX_LEN));
+    }
+    if is_common(password) {
+        return Err(crate::error::FieldError::new(
+            "too_common",
+            "This password is on a list of commonly used passwords. Choose another.",
+        ));
     }
     Ok(())
 }
@@ -69,5 +94,14 @@ mod tests {
         assert!(!verify("x", "not a hash"));
         assert!(check_policy("short", 10).is_err());
         assert!(check_policy("long enough!", 10).is_ok());
+        assert_eq!(
+            check_policy("1234567890", 10).unwrap_err().code,
+            "too_common"
+        );
+        assert_eq!(
+            check_policy("QWERTYUIOP", 10).unwrap_err().code,
+            "too_common",
+            "case-insensitive"
+        );
     }
 }

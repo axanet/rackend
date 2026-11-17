@@ -11,7 +11,10 @@ pub mod schema;
 pub mod value;
 
 pub use audit::{Actor, ActorType, AuditEntry};
-pub use collection::{Collection, CollectionOptions, CollectionType, IndexDef, RuleOp, Rules};
+pub use collection::{
+    AuthMethods, AuthOptions, Collection, CollectionOptions, CollectionType, IndexDef, RuleOp,
+    Rules,
+};
 pub use ddl::DdlStep;
 pub use field::{Field, FieldKind, OnDelete, ValueType};
 pub use history::{HistoryEntry, TrashEntry, TrashKind};
