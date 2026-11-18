@@ -125,7 +125,7 @@ pub fn assert_problem(r: &Reply) -> Value {
     let code = p["code"].as_str().unwrap();
     assert_eq!(
         p["type"].as_str().unwrap(),
-        format!("https://github.com/axanet/rackend/blob/main/docs/errors.md#{code}")
+        format!("https://rackend.axanet.ch/docs/reference/errors/#{code}")
     );
     assert!(
         documented_codes().contains(code),
