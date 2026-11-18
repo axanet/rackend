@@ -255,6 +255,10 @@ pub async fn run(cfg: Config, version: &'static str) -> Result<(), Fatal> {
     // Shutdown: stop accepting, wait for in-flight requests (bounded), drain
     // the writer queues, checkpoint, release the lock.
     tracing::info!("shutting down");
+    // New requests get 503 from now on, before the realtime and collab
+    // connections close: their clients reconnect at once and must not get
+    // work from this instance, such as a collab ticket that dies with it.
+    app.begin_shutdown();
     // Long-lived realtime streams would hold the graceful shutdown open.
     app.hub.close_all("shutdown");
     let mut failure = None;

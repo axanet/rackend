@@ -881,6 +881,10 @@ pub fn router(state: AppState, cfg: HttpConfig) -> Router {
             state.clone(),
             oidc::cors,
         ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            middleware::refuse_while_shutting_down,
+        ))
         .with_state(state.clone());
     with_middleware(app, cfg).layer(axum::middleware::from_fn_with_state(
         state,
