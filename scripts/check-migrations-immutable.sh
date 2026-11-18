@@ -4,7 +4,8 @@
 set -eu
 
 cd "$(git rev-parse --show-toplevel)"
-tag=$(git tag --list --sort=-v:refname | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)
+# versionsort.suffix: 0.2.0-alpha.1 sorts before 0.2.0, not after it.
+tag=$(git -c versionsort.suffix=- tag --list --sort=-v:refname | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)
 if [ -z "$tag" ]; then
   echo "check-migrations-immutable: no release tag yet, nothing to compare"
   exit 0

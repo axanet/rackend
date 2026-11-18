@@ -1,0 +1,28 @@
+name: pr
+
+# A squash merge commits the PR title to main, so the title is checked like a
+# commit message (scripts/ci.sh pr-title). Runs again when the title changes,
+# without re-running CI.
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  title:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with: { fetch-depth: 0 }
+      - uses: jdx/mise-action@v3
+        with: { install_args: cocogitto }
+      - run: scripts/ci.sh pr-title "$TITLE" "$RANGE"
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+          RANGE: ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}

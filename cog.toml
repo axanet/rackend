@@ -1,0 +1,58 @@
+#:schema https://docs.cocogitto.io/cog-schema.json
+# Conventional Commits and releases with cocogitto (https://docs.cocogitto.io).
+# Commit messages are checked by the commit-msg hook (`mise run hooks`) and in
+# CI (`scripts/ci.sh commits`); `mise run release` cuts a release. See
+# CONTRIBUTING.md.
+
+# Tags are x.y.z without a prefix: release.yml and
+# scripts/check-migrations-immutable.sh match them.
+tag_prefix = ""
+branch_whitelist = ["main"]
+ignore_merge_commits = true
+
+# Everything a release commit carries besides CHANGELOG.md: the workspace
+# version, the pinned image tag in the docs and the upgrade fixture.
+pre_bump_hooks = ["scripts/release-prepare.sh {{version}}"]
+# Commit and tag reach origin together or not at all; the tag starts the
+# image build.
+post_bump_hooks = ["git push --atomic origin main {{version}}"]
+
+# Installed with `mise run hooks`. fixup!/squash! commits are fine locally;
+# CI rejects them on main.
+[git_hooks.commit-msg]
+script = '''#!/bin/sh
+set -e
+if command -v cog >/dev/null 2>&1; then cog=cog; else cog="mise exec -- cog"; fi
+if ! out=$($cog verify --ignore-fixup-commits --file "$1" 2>&1); then
+  echo "$out" >&2
+  exit 1
+fi
+if grep -v '^#' "$1" | grep -q "$(printf '\342\200\224')"; then
+  echo "commit message: never use the em dash (CONTRIBUTING.md)" >&2
+  exit 1
+fi
+'''
+
+# feat bumps the minor version, fix and perf the patch version, a breaking
+# change (feat!: or a BREAKING CHANGE: footer) the major version; while the
+# version is 0.x a breaking change bumps the minor version. The other types
+# release nothing and stay out of the changelog.
+[commit_types]
+feat = { changelog_title = "Features", order = 1 }
+fix = { changelog_title = "Bug fixes", order = 2 }
+perf = { changelog_title = "Performance", order = 3 }
+revert = { changelog_title = "Reverts", order = 4 }
+docs = { changelog_title = "Documentation", order = 5 }
+build = { omit_from_changelog = true }
+chore = { omit_from_changelog = true }
+ci = { omit_from_changelog = true }
+refactor = { omit_from_changelog = true }
+style = { omit_from_changelog = true }
+test = { omit_from_changelog = true }
+
+[changelog]
+path = "CHANGELOG.md"
+template = "scripts/changelog.tera"
+remote = "github.com"
+owner = "axanet"
+repository = "rackend"

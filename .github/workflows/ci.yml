@@ -22,6 +22,18 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: scripts/ci.sh lint
 
+  commits:
+    # Conventional Commits (cog.toml): releases take their version from them.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with: { fetch-depth: 0 }
+      - uses: jdx/mise-action@v3
+        with: { install_args: cocogitto }
+      - run: scripts/ci.sh commits "$RANGE"
+        env:
+          RANGE: ${{ github.event_name == 'pull_request' && format('{0}..{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) || format('{0}..{1}', github.event.before, github.sha) }}
+
   test:
     runs-on: ubuntu-24.04
     steps:

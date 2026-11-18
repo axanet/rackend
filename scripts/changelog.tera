@@ -1,0 +1,20 @@
+{#- CHANGELOG.md (cog.toml); release.yml copies a version's section into its
+    GitHub Release. Types and titles come from [commit_types]; omitted types
+    never reach this template. -#}
+{% if version.tag -%}
+## {{ version.tag }} ({{ date | date(format="%Y-%m-%d") }})
+{% else -%}
+## Unreleased
+{% endif -%}
+{% for value in commits | group_by_type %}
+### {{ value.0 }}
+
+{% for scope, scoped_commits in value.1 | group_by(attribute="scope") -%}
+{% for commit in scoped_commits -%}
+- {% if commit.breaking_change %}**Breaking:** {% endif %}**{{ scope }}:** {{ commit.summary }} ([{{ commit.id | truncate(length=7, end="") }}]({{ repository_url ~ "/commit/" ~ commit.id }}))
+{% endfor -%}
+{% endfor -%}
+{% for commit in value.1 | unscoped -%}
+- {% if commit.breaking_change %}**Breaking:** {% endif %}{{ commit.summary }} ([{{ commit.id | truncate(length=7, end="") }}]({{ repository_url ~ "/commit/" ~ commit.id }}))
+{% endfor -%}
+{% endfor -%}

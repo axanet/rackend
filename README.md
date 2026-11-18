@@ -14,6 +14,7 @@
   <a href="docs/deployment.md"><img alt="Container image: ghcr.io/axanet/rackend for linux/amd64 and linux/arm64" src="https://img.shields.io/badge/ghcr.io-amd64_%7C_arm64-0a8f5f?logo=docker&logoColor=white"></a>
   <a href="Cargo.toml"><img alt="Rust 1.99 or newer" src="https://img.shields.io/badge/rust-1.99%2B-0b0c0e?logo=rust"></a>
   <a href="Cargo.toml"><img alt="unsafe code forbidden" src="https://img.shields.io/badge/unsafe-forbidden-0b0c0e"></a>
+  <a href="CONTRIBUTING.md#commit-messages"><img alt="Conventional Commits" src="https://img.shields.io/badge/commits-conventional-0b0c0e?logo=conventionalcommits&logoColor=white"></a>
 </p>
 
 <p align="center">
@@ -55,7 +56,8 @@ The admin UI is at <http://localhost:8080/_/>, the API under `/api/`. The [getti
 All tools and tasks are managed with [mise](https://mise.jdx.dev):
 
 ```sh
-mise install          # Rust, bun, cargo-nextest, cargo-deny (pinned)
+mise install          # Rust, bun, cargo-nextest, cargo-deny, cocogitto (pinned)
+mise run hooks        # commit-msg hook: Conventional Commits
 mise run build        # admin UI + release binary
 mise run dev          # run the server (data in ./.data)
 mise run test         # all tests
@@ -64,6 +66,7 @@ mise run test:clients # OpenAPI validation + generated TypeScript/Python clients
 mise run test:broker  # sign-in against Keycloak (Docker)
 mise run test:conformance # OpenID conformance suite, Basic OP + Config OP (Docker)
 mise run lint         # fmt, clippy -D warnings, cargo-deny, migration immutability
+mise run release      # cut a release from main (see CONTRIBUTING.md)
 ```
 
 ```

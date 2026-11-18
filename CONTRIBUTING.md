@@ -34,3 +34,52 @@ reproduction is perfect) and we will take it from there.
 - Bundled third-party material keeps its own license; see [NOTICE](NOTICE).
   Font files and license texts are used unmodified.
 - Never use the em dash in code, docs, UI text or commit messages.
+
+### Commit messages
+
+Commits follow [Conventional Commits](https://www.conventionalcommits.org),
+because releases take their version from them ([cog.toml](cog.toml)):
+
+| Commit | Release |
+|---|---|
+| `feat: ...` | minor (0.1.0 to 0.2.0) |
+| `fix: ...`, `perf: ...` | patch (0.1.0 to 0.1.1) |
+| `feat!: ...` or a `BREAKING CHANGE:` footer | major; minor while the version is 0.x |
+| `docs`, `refactor`, `test`, `build`, `ci`, `style`, `chore`, `revert` | none on its own |
+
+A scope is optional (`fix(rules): ...`). `feat`, `fix`, `perf`, `revert` and
+`docs` commits appear in [CHANGELOG.md](CHANGELOG.md), so write their subject
+for users. `mise run hooks` installs a commit-msg hook that checks each
+message.
+
+Changes reach `main` through pull requests, merged by squash or rebase:
+
+- **Squash:** the PR title becomes the commit on `main`, so CI checks it like
+  a commit message. If any commit in the PR is a breaking change, the title
+  must say so too (`feat!: ...`).
+- **Rebase:** every commit lands as it is, so CI checks every commit in the
+  PR and rejects `fixup!` and `squash!` commits; autosquash them first.
+
+### Releasing
+
+Releases are cut on demand from `main`: **Actions, release, Run workflow**,
+with an optional pre-release identifier (`alpha` gives `0.2.0-alpha.1`). The
+workflow refuses a commit on which CI has not passed. It then
+
+1. takes the next version from the commits since the latest tag (`mise run
+   release --dry-run` shows it locally),
+2. sets it in `Cargo.toml`, moves the `x.y` image tag in the docs (stable
+   releases only), writes the upgrade fixture of the release and runs the
+   upgrade tests against it,
+3. commits `chore(version): x.y.z` with the new section of CHANGELOG.md, tags
+   `x.y.z` and pushes both,
+4. publishes `ghcr.io/axanet/rackend` for amd64 and arm64 and a GitHub
+   Release with the changelog section.
+
+The workflow pushes as the release GitHub App (repository variable
+`RELEASE_APP_ID`, secret `RELEASE_APP_PRIVATE_KEY`), the only actor the
+rulesets let push to `main` and create release tags. Its push runs CI on the
+release commit, and the tag runs the release workflow again for step 4.
+`mise run release` does steps 1 to 3 from a local checkout, for someone the
+rulesets let bypass. A release needs at least one `feat`, `fix` or `perf`
+commit (or a breaking change) since the latest tag.

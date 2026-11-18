@@ -1,12 +1,54 @@
 #!/usr/bin/env bash
 # Shared CI entry point for GitHub Actions and Forgejo Actions (SPEC §19).
-# Usage: scripts/ci.sh <lint|test|upgrade|clients|collab|docker-smoke IMAGE>
+# Usage: scripts/ci.sh <lint|commits [FROM..TO]|pr-title TITLE BASE..HEAD|test|upgrade|clients|collab|docker-smoke IMAGE>
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
 case "${1:-}" in
   lint)
     mise run lint
+    ;;
+  commits)
+    # Conventional Commits (cog.toml) in FROM..TO, by default since the latest
+    # tag. Unlike git, cog checks FROM itself too. Merge commits are skipped;
+    # fixup!/squash! commits must not land. Before the first release the
+    # default starts after "Initial commit", which predates the convention.
+    range="${2:-}"
+    # A push that creates the branch has no "before" commit.
+    case "$range" in 0000000000000000000000000000000000000000..*) range="" ;; esac
+    if [ -z "$range" ]; then
+      from=$(git describe --tags --abbrev=0 2>/dev/null || git rev-list --reverse HEAD | sed -n 2p)
+      range="$from..HEAD"
+    fi
+    cog check "$range"
+    if git log --format=%B "$range" | grep -q "$(printf '\342\200\224')"; then
+      echo "a commit message in $range uses the em dash (CONTRIBUTING.md)" >&2
+      exit 1
+    fi
+    ;;
+  pr-title)
+    # A squash merge commits the PR title to main, so it must be a
+    # Conventional Commit too, and must be marked breaking (feat!: ...) when
+    # a commit in the PR is: the squash keeps no other marker.
+    usage="usage: scripts/ci.sh pr-title TITLE BASE..HEAD"
+    title="${2:?$usage}"
+    range="${3:?$usage}"
+    if ! out=$(cog verify "$title" 2>&1); then
+      echo "PR title: $out" >&2
+      exit 1
+    fi
+    if printf '%s' "$title" | grep -q "$(printf '\342\200\224')"; then
+      echo "PR title: never use the em dash (CONTRIBUTING.md)" >&2
+      exit 1
+    fi
+    breaking='^[a-z]+(\([^)]*\))?!:'
+    if git log --format=%s "$range" | grep -qE "$breaking" ||
+      git log --format=%b "$range" | grep -qE '^BREAKING[ -]CHANGE:'; then
+      printf '%s' "$title" | grep -qE "$breaking" || {
+        echo "PR title: a commit in this PR is a breaking change; mark the title with ! (e.g. feat!: ...)" >&2
+        exit 1
+      }
+    fi
     ;;
   test)
     mise run test

@@ -3,6 +3,7 @@ rust = { version = "1.99.1", components = "clippy,rustfmt" }
 bun = "1.4.3"
 "cargo:cargo-nextest" = "0.9.152"
 "cargo:cargo-deny" = "0.21.0"
+cocogitto = "7.0.0"
 
 [env]
 RACKEND_DATA_DIR = "{{config_root}}/.data"
@@ -57,6 +58,18 @@ run = [
   "cargo deny check",
   "scripts/check-migrations-immutable.sh",
 ]
+
+[tasks."lint:commits"]
+description = "Conventional Commits since the latest tag (cog.toml); pass a range to check others: mise run lint:commits <from>..<to>"
+run = "scripts/ci.sh commits"
+
+[tasks.hooks]
+description = "Install the git hooks from cog.toml (commit-msg: Conventional Commits)"
+run = "cog install-hook --all --overwrite"
+
+[tasks.release]
+description = "Cut a release from main, version from the commits since the latest tag: mise run release [--pre alpha] [--dry-run]"
+run = "scripts/release.sh"
 
 [tasks.fmt]
 run = "cargo fmt --all"

@@ -1,19 +1,96 @@
 name: release
 
-# Tags: x.y.z or pre-releases like 0.1.0-alpha (SPEC §7.5, §20).
+# Releases are cut on demand (SPEC §7.5, §20): Actions, release, Run workflow
+# on main. cocogitto takes the version from the Conventional Commits since the
+# latest tag (cog.toml); scripts/release.sh commits it with CHANGELOG.md and
+# the upgrade fixture and pushes the commit and the tag as the release GitHub
+# App, which the rulesets let push to main and create tags. Unlike
+# GITHUB_TOKEN, its pushes start workflows: the commit runs CI and the tag
+# runs this workflow again, which builds and publishes. A tag pushed by hand
+# releases the same way.
+# Tags: x.y.z or pre-releases like 0.2.0-alpha.1.
 on:
+  workflow_dispatch:
+    inputs:
+      pre:
+        description: "Pre-release identifier, e.g. alpha for 0.2.0-alpha.1. Empty for a stable release."
+        required: false
+        default: ""
   push:
     tags: ["[0-9]+.[0-9]+.[0-9]+*"]
 
+# One release from main at a time; tag runs never wait for or replace each other.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
-  packages: write
 
 env:
   IMAGE: ghcr.io/axanet/rackend
 
 jobs:
+  version:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read # CI status of the commit
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      sha: ${{ steps.tag.outputs.sha }}
+    steps:
+      # Repository variable RELEASE_APP_ID and secret RELEASE_APP_PRIVATE_KEY:
+      # a GitHub App with Contents read and write on this repository only.
+      - id: app
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app.outputs.token || github.token }}
+      - name: release from a commit that passed CI
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [ "$GITHUB_REF" = refs/heads/main ] || { echo "::error::Releases are cut from main."; exit 1; }
+          passed=$(gh run list --workflow ci.yml --commit "$GITHUB_SHA" --status success --json databaseId --jq length)
+          [ "$passed" -gt 0 ] || { echo "::error::CI has not passed on $GITHUB_SHA (yet)."; exit 1; }
+      - uses: jdx/mise-action@v3
+        if: github.event_name == 'workflow_dispatch'
+        with: { install_args: rust cocogitto }
+      - uses: Swatinem/rust-cache@v2
+        if: github.event_name == 'workflow_dispatch'
+      - name: version, changelog, upgrade fixture; commit, tag and push
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          APP_SLUG: ${{ steps.app.outputs.app-slug }}
+          PRE: ${{ inputs.pre }}
+        run: |
+          bot="${APP_SLUG}[bot]"
+          git config user.name "$bot"
+          git config user.email "$(gh api "users/$bot" --jq .id)+$bot@users.noreply.github.com"
+          scripts/release.sh ${PRE:+--pre "$PRE"}
+      - id: tag
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ]; then tag="$GITHUB_REF_NAME"; else tag=$(git describe --tags --exact-match HEAD); fi
+          version=$(awk -F'"' '/^\[/ { p = ($0 == "[workspace.package]") } p && /^version = / { print $2; exit }' Cargo.toml)
+          [ "$version" = "$tag" ] || { echo "::error::Cargo.toml has version $version, the tag is $tag."; exit 1; }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: version
+    # A dispatched run stops at the push; the tag's own run builds.
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+      packages: write
     strategy:
       matrix:
         include:
@@ -24,6 +101,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v5
+        with: { ref: "${{ needs.version.outputs.tag }}" }
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
@@ -35,7 +113,7 @@ jobs:
         with:
           context: .
           platforms: ${{ matrix.platform }}
-          build-args: RACKEND_GIT_COMMIT=${{ github.sha }}
+          build-args: RACKEND_GIT_COMMIT=${{ needs.version.outputs.sha }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
       - run: |
           mkdir -p /tmp/digests
@@ -47,7 +125,10 @@ jobs:
           path: /tmp/digests/*
 
   publish:
-    needs: build
+    needs: [version, build]
+    permissions:
+      contents: read
+      packages: write
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@v4
@@ -63,12 +144,32 @@ jobs:
         with:
           images: ${{ env.IMAGE }}
           # x.y.z, x.y, x and latest; pre-releases only get their full tag.
+          # value: a dispatched run's ref is main, not the tag.
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
+            type=semver,pattern={{version}},value=${{ needs.version.outputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.version.outputs.tag }}
+            type=semver,pattern={{major}},value=${{ needs.version.outputs.tag }}
       - working-directory: /tmp/digests
         run: |
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             $(printf '${{ env.IMAGE }}@sha256:%s ' *)
+
+  github-release:
+    needs: [version, publish]
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with: { ref: "${{ needs.version.outputs.tag }}" }
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+        run: |
+          # The notes are this version's section of CHANGELOG.md.
+          awk -v tag="$TAG" '/^## / { if (f) exit; f = ($2 == tag); next } /^- - -$/ { if (f) exit; next } f' CHANGELOG.md > notes.md
+          printf '\n```sh\ndocker pull %s:%s\n```\n' "$IMAGE" "$TAG" >> notes.md
+          prerelease=""
+          case "$TAG" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$TAG" --verify-tag --title "$TAG" --notes-file notes.md $prerelease
