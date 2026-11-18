@@ -168,6 +168,14 @@ pub async fn rules_check(
     ctx.require_superuser()?;
     let rule = str_field(&body, "rule")?;
     let compiled = state.app().schema.get();
+    // Channel join/publish rules have no collection.
+    if body.get("operation").and_then(Value::as_str) == Some("channel") {
+        if !rule.trim().is_empty() {
+            compile(&compiled.schema, None, rule, Mode::Channel)
+                .map_err(rackend_core::Error::from)?;
+        }
+        return Ok(ok(json!({ "ok": true, "public": rule.trim().is_empty() })));
+    }
     let (schema, collection) = match body.get("collection") {
         Some(Value::String(key)) => {
             let c = compiled

@@ -273,6 +273,8 @@ pub async fn run(cfg: Config, version: &'static str) -> Result<(), Fatal> {
             }
         }
     }
+    // Collaborative documents: append and compact what is still in memory.
+    app.collab_shutdown().await;
     #[cfg(feature = "otlp")]
     crate::otlp::shutdown();
     keys.abort();

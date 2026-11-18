@@ -11,7 +11,7 @@
 
 	let { collection }: { collection: Collection | null } = $props();
 
-	const TYPES: FieldType[] = ['text', 'email', 'url', 'number', 'bool', 'date', 'autodate', 'select', 'json', 'relation', 'file'];
+	const TYPES: FieldType[] = ['text', 'email', 'url', 'number', 'bool', 'date', 'autodate', 'select', 'json', 'relation', 'file', 'ydoc'];
 	const MB = 1024 * 1024;
 	const OPS: RuleOp[] = ['list', 'view', 'create', 'update', 'delete'];
 
@@ -102,6 +102,7 @@
 			f.on_create = true;
 			f.on_update = false;
 		}
+		if (type === 'ydoc') f.max_size = 10 * MB;
 		if (type === 'file') {
 			f.max_select = 1;
 			f.max_size = 10 * MB;
@@ -313,7 +314,7 @@
 						</select>
 						{#if fieldErr(`fields.${i}.type`)}<span class="error-text">{fieldErr(`fields.${i}.type`)}</span>{/if}
 					</label>
-					{#if !['bool', 'autodate', 'json'].includes(f.type)}
+					{#if !['bool', 'autodate', 'json', 'ydoc'].includes(f.type)}
 						<label class="inline"><input type="checkbox" bind:checked={f.required} />Required</label>
 					{/if}
 					<button type="button" class="btn sm icon ghost" aria-label="Remove field {f.name || i + 1}" onclick={() => draft.fields.splice(i, 1)}>
@@ -345,6 +346,21 @@
 						<label class="field">Max selected<input type="number" min="1" value={f.max_select ?? 1} oninput={(e) => (f.max_select = num(e.currentTarget.value))} /></label>
 					{:else if f.type === 'json'}
 						<label class="field">Max bytes<input type="number" min="1" value={f.max_size ?? ''} placeholder="1048576" oninput={(e) => (f.max_size = num(e.currentTarget.value))} /></label>
+					{:else if f.type === 'ydoc'}
+						<label class="field">
+							Max size (MB)
+							<input
+								type="number"
+								min="0.01"
+								step="any"
+								value={typeof f.max_size === 'number' ? Math.round((f.max_size / MB) * 100) / 100 : 10}
+								oninput={(e) => {
+									const v = num(e.currentTarget.value);
+									f.max_size = v === null ? null : Math.max(1024, Math.round(v * MB));
+								}}
+							/>
+						</label>
+						<p class="hint grow">A collaborative document (Yjs). Clients edit it live through <code class="mono">/api/collab</code>; it is not part of the record JSON and rules cannot use it.</p>
 					{:else if f.type === 'file'}
 						<label class="field">Max files<input type="number" min="1" value={f.max_select ?? 1} oninput={(e) => (f.max_select = num(e.currentTarget.value))} /></label>
 						<label class="field">

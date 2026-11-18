@@ -57,7 +57,11 @@ fn select_columns(c: &Collection) -> String {
         "t.\"created\"".to_owned(),
         "t.\"updated\"".to_owned(),
     ];
-    cols.extend(c.fields.iter().map(|f| format!("t.{}", q(&f.name))));
+    // Collaborative documents stay in the database: /api/collab serves them.
+    cols.extend(c.fields.iter().map(|f| match f.kind {
+        FieldKind::Ydoc { .. } => "NULL".to_owned(),
+        _ => format!("t.{}", q(&f.name)),
+    }));
     cols.join(", ")
 }
 

@@ -25,5 +25,5 @@ pub use observe::{
 pub use spawner::{BlockingJob, BoxFuture, Spawner};
 pub use store::{
     AnyBox, AuditQuery, ReadJob, ReadTx, RecordPage, RecordQuery, SettingRow, Sort, Store,
-    StoreExt, StoreFuture, StoreStats, WriteJob, WriteTx,
+    StoreExt, StoreFuture, StoreStats, WriteJob, WriteTx, YdocStored,
 };

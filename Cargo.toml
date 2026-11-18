@@ -79,6 +79,8 @@ tracing-opentelemetry = { version = "0.34", default-features = false }
 lettre = { version = "0.11.24", default-features = false, features = ["smtp-transport", "pool", "hostname", "builder", "tokio1-rustls", "aws-lc-rs", "webpki-roots", "tracing"] }
 openidconnect = { version = "4.1", default-features = false }
 http = "1.3"
+# M9 (ADR 0018): collaborative editing, Yjs-compatible CRDT (SPEC §13.4).
+yrs = { version = "0.28", features = ["sync"] }
 # M8 (ADR 0017): hosted login and consent pages (SPEC §11.8.5).
 askama = { version = "0.16", default-features = false, features = ["derive", "std", "urlencode"] }
 # Stream plumbing for bodies and object storage (ADR 0012)

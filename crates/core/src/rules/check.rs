@@ -367,6 +367,14 @@ impl Checker<'_> {
                     format!("unknown field '{seg}' in collection '{}'.{hint}", coll.name),
                 ));
             };
+            if matches!(f.kind, FieldKind::Ydoc { .. }) {
+                return Err(self.err(
+                    p.span,
+                    format!(
+                        "'{seg}' is a collaborative document and cannot be used in rules or filters"
+                    ),
+                ));
+            }
 
             if last {
                 let leaf = match f.kind {
@@ -674,6 +682,12 @@ impl Checker<'_> {
                 ),
             ));
         };
+        if matches!(f.kind, FieldKind::Ydoc { .. }) {
+            return Err(self.err(
+                span,
+                format!("'{field}' is a collaborative document and cannot be used in rules"),
+            ));
+        }
         if path.modifier == Some(Modifier::IsSet) {
             return Ok(self.param(Param::BodyIsSet(field.to_owned()), VType::Bool, false, span));
         }

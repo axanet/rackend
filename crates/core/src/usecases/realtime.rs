@@ -29,6 +29,8 @@ use crate::{Error, Result};
 /// How often sessions of connected clients are checked (revocation closes
 /// the connection within 5 s, SPEC §13.2).
 const SWEEP_EVERY: Duration = Duration::from_secs(2);
+/// Presence expiry tick (channel members leave 3 to 4 s after a disconnect).
+const PRESENCE_TICK: Duration = Duration::from_secs(1);
 
 /// A subscription request from a transport.
 #[derive(Debug, Clone, Default)]
@@ -112,6 +114,27 @@ impl App {
                 }),
             );
         }
+        let me = Arc::downgrade(self);
+        let sleep = Arc::clone(&self.spawner);
+        self.spawner.spawn(
+            "realtime.presence",
+            Box::pin(async move {
+                let mut ticks = 0u64;
+                loop {
+                    sleep.sleep(PRESENCE_TICK).await;
+                    let Some(app) = me.upgrade() else { return };
+                    app.hub
+                        .channels
+                        .expire(app.realtime_limits().outbound_bytes);
+                    ticks += 1;
+                    if ticks.is_multiple_of(super::channels::RECHECK_EVERY.as_secs())
+                        && let Err(e) = app.channels_recheck().await
+                    {
+                        tracing::warn!(error = %e, "channel member re-check failed");
+                    }
+                }
+            }),
+        );
         let me = Arc::downgrade(self);
         let sleep = Arc::clone(&self.spawner);
         self.spawner.spawn(
@@ -357,6 +380,9 @@ impl App {
             && let Principal::User { fields, .. } = user_principal(&c, after, "")
         {
             self.hub.update_user_fields(&record_id, &fields);
+        }
+        if change.action == Action::Delete {
+            self.collab_record_deleted(c.id, &record_id);
         }
         let interests = self.hub.interested(c.id, &record_id);
         if interests.is_empty() {

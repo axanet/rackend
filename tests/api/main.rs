@@ -3,6 +3,8 @@
 
 mod audit_fault;
 mod broker;
+mod channels;
+mod collab;
 mod common;
 mod docs_examples;
 mod email_auth;

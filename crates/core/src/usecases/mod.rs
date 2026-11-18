@@ -4,6 +4,8 @@
 pub mod audit;
 pub mod auth;
 pub mod broker;
+pub mod channels;
+pub mod collab;
 pub mod collections;
 pub mod compiled;
 pub mod ctx;
@@ -87,6 +89,10 @@ pub struct App {
     pub(crate) keys: oidc_keys::KeyCache,
     /// Enabled external providers.
     pub(crate) providers: broker::ProviderCache,
+    /// Open collaborative documents (SPEC §13.4).
+    pub collab: collab::CollabState,
+    /// Channel definitions (SPEC §13.3).
+    pub(crate) channel_defs: channels::ChannelCache,
     /// Builds mailers from the `smtp` settings.
     pub(crate) mailer_factory: Arc<dyn MailerFactory>,
     /// The current mailer, `None` while SMTP is not configured.
@@ -162,6 +168,8 @@ impl App {
             mailer_factory: cfg.mailer_factory,
             mailer: RwLock::new(None),
             providers: broker::ProviderCache::default(),
+            channel_defs: channels::ChannelCache::default(),
+            collab: collab::CollabState::default(),
             keys: oidc_keys::KeyCache::default(),
             idp: cfg.idp,
             dev_mode: cfg.dev_mode,
@@ -171,8 +179,10 @@ impl App {
         app.rebuild_blobs();
         app.rebuild_mailer();
         app.reload_providers().await?;
+        app.reload_channels().await?;
         app.reload_keys().await?;
         app.realtime_start();
+        app.collab_start();
         app.observe_start();
         app.reload_schema().await?;
         Ok(app)

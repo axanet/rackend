@@ -12,7 +12,7 @@
 	}: { collection: Collection; record: RecordRow | null; onclose: () => void; onsaved: () => void } = $props();
 
 	const multi = (f: Field) => ((f.max_select as number | undefined) ?? 1) > 1;
-	const editable = (f: Field) => f.type !== 'autodate' && f.type !== 'file';
+	const editable = (f: Field) => f.type !== 'autodate' && f.type !== 'file' && f.type !== 'ydoc';
 	const names = (v: unknown): string[] => (Array.isArray(v) ? (v as string[]) : typeof v === 'string' && v ? [v] : []);
 
 	function toInput(f: Field, v: unknown): unknown {
@@ -174,6 +174,11 @@
 							{err ?? `Up to ${formatBytes((f.max_size as number) ?? 10485760)} per file${multi(f) ? `, ${f.max_select} files` : ''}${((f.mime_types as string[]) ?? []).length ? `; ${(f.mime_types as string[]).join(', ')}` : ''}.${!multi(f) && (kept[f.name] ?? []).length ? ' A new file replaces the current one.' : ''}`}
 						</span>
 					</fieldset>
+				{:else if f.type === 'ydoc'}
+					<div class="field">
+						<span class="name">{f.name} <span class="chip">ydoc</span></span>
+						<span class="subtle value">Collaborative document: clients edit it live through <span class="mono">/api/collab/{collection.name}/{record?.id ?? '{id}'}/{f.name}</span>.</span>
+					</div>
 				{:else if f.type === 'autodate'}
 					<div class="field">
 						<span class="name">{f.name} <span class="chip">autodate</span></span>

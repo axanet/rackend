@@ -15,6 +15,8 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::domain::Record;
+
+pub mod channels;
 use crate::usecases::Principal;
 
 /// Queued committed changes before dispatch; beyond this, subscribers of the
@@ -177,6 +179,10 @@ pub enum Out {
         /// Topic string.
         topic: String,
     },
+    /// A WebSocket-only JSON message (channels, presence).
+    Text(Arc<str>),
+    /// A WebSocket-only binary message (collaborative documents).
+    Binary(Arc<[u8]>),
     /// Close the connection.
     Close {
         /// `session_revoked`, `slow_consumer`, `shutdown`.
@@ -190,6 +196,8 @@ impl Out {
         match self {
             Self::Event { frame, .. } => frame.ws.len().max(frame.sse.len()),
             Self::Resync { topic } => topic.len() + 32,
+            Self::Text(t) => t.len(),
+            Self::Binary(b) => b.len(),
             Self::Close { .. } => 32,
         }
     }
@@ -211,6 +219,8 @@ struct ClientState {
 pub struct Client {
     /// Secret id: binding subscriptions needs it.
     pub id: String,
+    /// Public id, shown to other channel members.
+    pub conn_id: String,
     /// Client IP, for the per-IP limit.
     pub ip: Option<String>,
     state: Mutex<ClientState>,
@@ -325,6 +335,8 @@ pub struct Hub {
     overflowed: Mutex<HashSet<Uuid>>,
     /// Events dispatched (tests, metrics).
     pub dispatched: AtomicU64,
+    /// Channel instances and presence (SPEC §13.3).
+    pub channels: channels::Channels,
 }
 
 impl Default for Hub {
@@ -336,6 +348,7 @@ impl Default for Hub {
             receiver: Mutex::new(Some(rx)),
             overflowed: Mutex::new(HashSet::new()),
             dispatched: AtomicU64::new(0),
+            channels: channels::Channels::default(),
         }
     }
 }
@@ -421,6 +434,11 @@ impl Hub {
         let (tx, rx) = mpsc::unbounded_channel();
         let client = Arc::new(Client {
             id: new_client_id(),
+            conn_id: {
+                use base64::Engine as _;
+                base64::engine::general_purpose::URL_SAFE_NO_PAD
+                    .encode(crate::auth::token::random_bytes::<9>())
+            },
             ip,
             state: Mutex::new(ClientState {
                 auth: ClientAuth::anonymous(),
@@ -487,6 +505,7 @@ impl Hub {
             st.detached_at = Some(Instant::now());
             st.closed
         };
+        self.channels.detach(id);
         if !keep || closed {
             self.write().remove(id);
         }

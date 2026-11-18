@@ -113,6 +113,8 @@ pub async fn sse(State(state): State<AppState>, Ctx(ctx): Ctx, headers: HeaderMa
                 Out::Resync { topic } => Event::default()
                     .event("resync")
                     .data(json!({ "type": "resync", "topic": topic }).to_string()),
+                // Channels are WebSocket only.
+                Out::Text(_) | Out::Binary(_) => Event::default().comment(""),
                 Out::Close { reason } => {
                     st.done = true;
                     Event::default()
@@ -218,7 +220,7 @@ fn ack(id: Option<&Value>) -> Value {
 }
 
 /// Handles one client message and returns the reply.
-async fn handle(app: &App, client: &Client, ctx: &RequestCtx, text: &str) -> Value {
+async fn handle(app: &App, client: &Arc<Client>, ctx: &RequestCtx, text: &str) -> Value {
     let Ok(msg) = serde_json::from_str::<Value>(text) else {
         return err(
             None,
@@ -268,10 +270,45 @@ async fn handle(app: &App, client: &Client, ctx: &RequestCtx, text: &str) -> Val
                 Ok(ack(id))
             }
         }
-        Some("join" | "leave" | "pub" | "meta") => Err(ApiError::with_detail(
-            crate::ProblemCode::BadRequest,
-            "Channels and presence are not available in this version yet.",
-        )),
+        Some("join") => {
+            let channel = s("channel").unwrap_or_default();
+            app.channel_join(client, &channel, msg.get("meta").cloned())
+                .await
+                .map(|()| ack(id))
+                .map_err(ApiError::from)
+        }
+        Some("leave") => app
+            .channel_leave(client, &s("channel").unwrap_or_default())
+            .map(|()| ack(id))
+            .map_err(ApiError::from),
+        // Messages without an id are not acknowledged (errors still are).
+        Some("pub") if id.is_none() => {
+            return app
+                .channel_publish(
+                    client,
+                    &s("channel").unwrap_or_default(),
+                    &s("event").unwrap_or_default(),
+                    msg.get("data").unwrap_or(&Value::Null),
+                )
+                .map_or_else(|e| err(None, &ApiError::from(e)), |()| Value::Null);
+        }
+        Some("pub") => app
+            .channel_publish(
+                client,
+                &s("channel").unwrap_or_default(),
+                &s("event").unwrap_or_default(),
+                msg.get("data").unwrap_or(&Value::Null),
+            )
+            .map(|()| ack(id))
+            .map_err(ApiError::from),
+        Some("meta") => app
+            .channel_meta(
+                client,
+                &s("channel").unwrap_or_default(),
+                msg.get("meta").cloned(),
+            )
+            .map(|()| ack(id))
+            .map_err(ApiError::from),
         _ => Err(ApiError::with_detail(
             crate::ProblemCode::BadRequest,
             "Unknown message type.",
@@ -305,7 +342,7 @@ async fn run_ws(
             msg = stream.next() => match msg {
                 Some(Ok(Message::Text(t))) => {
                     let reply = handle(&app, &client, &ctx, &t).await;
-                    if sink.send(Message::Text(reply.to_string().into())).await.is_err() {
+                    if !reply.is_null() && sink.send(Message::Text(reply.to_string().into())).await.is_err() {
                         break;
                     }
                 }
@@ -327,6 +364,8 @@ async fn run_ws(
                     Out::Resync { topic } => {
                         sink.send(Message::Text(json!({ "t": "resync", "topic": topic }).to_string().into())).await
                     }
+                    Out::Text(t) => sink.send(Message::Text(t.as_ref().into())).await,
+                    Out::Binary(_) => Ok(()),
                     Out::Close { reason } => {
                         let _ = sink
                             .send(Message::Close(Some(CloseFrame { code: 4000, reason: (*reason).into() })))
@@ -349,4 +388,47 @@ async fn run_ws(
             }
         }
     }
+}
+
+/// `GET /api/channels`.
+pub async fn channels(State(state): State<AppState>, Ctx(ctx): Ctx) -> ApiResult {
+    Ok(super::ok(state.app().channels_list(&ctx)?))
+}
+
+/// `GET /api/channels/live`.
+pub async fn channels_live(State(state): State<AppState>, Ctx(ctx): Ctx) -> ApiResult {
+    Ok(super::ok(state.app().channels_live(&ctx)?))
+}
+
+/// `POST /api/channels`.
+pub async fn channel_create(
+    State(state): State<AppState>,
+    Ctx(ctx): Ctx,
+    Json(body): Json<Value>,
+) -> ApiResult {
+    Ok(super::created(
+        state.app().channel_save(&ctx, None, body).await?,
+    ))
+}
+
+/// `PATCH /api/channels/{id}`.
+pub async fn channel_update(
+    State(state): State<AppState>,
+    Ctx(ctx): Ctx,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(body): Json<Value>,
+) -> ApiResult {
+    Ok(super::ok(
+        state.app().channel_save(&ctx, Some(&id), body).await?,
+    ))
+}
+
+/// `DELETE /api/channels/{id}`.
+pub async fn channel_delete(
+    State(state): State<AppState>,
+    Ctx(ctx): Ctx,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> ApiResult {
+    state.app().channel_delete(&ctx, &id).await?;
+    Ok(no_content())
 }

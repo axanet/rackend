@@ -31,6 +31,10 @@ impl Record {
         m.insert("created".into(), json!(self.created));
         m.insert("updated".into(), json!(self.updated));
         for f in &collection.fields {
+            // Collaborative documents are binary and served by /api/collab.
+            if matches!(f.kind, crate::domain::FieldKind::Ydoc { .. }) {
+                continue;
+            }
             m.insert(
                 f.name.clone(),
                 self.data.get(&f.name).cloned().unwrap_or(Value::Null),

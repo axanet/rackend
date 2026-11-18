@@ -115,7 +115,16 @@ pub enum FieldKind {
         protected: bool,
         strip_metadata: bool,
     },
+    /// A Yjs document for collaborative editing (SPEC §13.4). Stored as a
+    /// BLOB, edited only through `/api/collab`, left out of record JSON.
+    Ydoc {
+        /// Largest compacted document in bytes.
+        max_size: u64,
+    },
 }
+
+/// Default `ydoc` size limit (10 MB).
+pub const YDOC_MAX_DEFAULT: u64 = 10 * 1024 * 1024;
 
 /// The scalar type of a field's values, for the rule type checker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -200,6 +209,7 @@ impl Field {
             FieldKind::Json { .. } => "json",
             FieldKind::Relation { .. } => "relation",
             FieldKind::File { .. } => "file",
+            FieldKind::Ydoc { .. } => "ydoc",
         }
     }
 
@@ -239,7 +249,7 @@ impl Field {
             FieldKind::Number { .. } => ValueType::Number,
             FieldKind::Bool => ValueType::Bool,
             FieldKind::Date { .. } | FieldKind::Autodate { .. } => ValueType::Date,
-            FieldKind::Json { .. } => ValueType::Any,
+            FieldKind::Json { .. } | FieldKind::Ydoc { .. } => ValueType::Any,
             FieldKind::Relation { collection_id, .. } => ValueType::Relation(*collection_id),
         }
     }
@@ -257,6 +267,7 @@ impl Field {
         match self.kind {
             FieldKind::Number { .. } => "REAL",
             FieldKind::Bool => "INTEGER",
+            FieldKind::Ydoc { .. } => "BLOB",
             _ => "TEXT",
         }
     }
@@ -328,7 +339,7 @@ impl Field {
                 m.insert("values".into(), json!(values));
                 m.insert("max_select".into(), json!(max_select));
             }
-            FieldKind::Json { max_size } => {
+            FieldKind::Json { max_size } | FieldKind::Ydoc { max_size } => {
                 m.insert("max_size".into(), json!(max_size));
             }
             FieldKind::Relation {
@@ -550,6 +561,9 @@ impl Field {
             "json" => FieldKind::Json {
                 max_size: p.u64("max_size").unwrap_or(JSON_MAX_DEFAULT).max(1),
             },
+            "ydoc" => FieldKind::Ydoc {
+                max_size: p.u64("max_size").unwrap_or(YDOC_MAX_DEFAULT).max(1024),
+            },
             "relation" => {
                 let required = p.bool("required", false);
                 let collection_id = match p.str("collection_id").map(|s| Uuid::try_parse(&s)) {
@@ -645,16 +659,6 @@ impl Field {
                     strip_metadata,
                 }
             }
-            "ydoc" => {
-                p.err(
-                    "type",
-                    FieldError::new(
-                        "unsupported_type",
-                        format!("The {ty} type is not available yet."),
-                    ),
-                );
-                return None;
-            }
             _ => {
                 p.err(
                     "type",
@@ -684,6 +688,13 @@ impl Field {
                 return Err(FieldError::new(
                     "read_only",
                     "This field is set by the server.",
+                ));
+            }
+            (FieldKind::Ydoc { .. }, Value::Null) => Value::Null,
+            (FieldKind::Ydoc { .. }, _) => {
+                return Err(FieldError::new(
+                    "read_only",
+                    "Edit collaborative documents through /api/collab.",
                 ));
             }
             (FieldKind::Bool, Value::Null) => Value::Bool(false),
@@ -1180,8 +1191,9 @@ mod tests {
         assert_eq!(e.0["fields.0.pattern"][0].code, "invalid_pattern");
         let e = field(json!({"name": "t", "type": "warp"})).unwrap_err();
         assert_eq!(e.0["fields.0.type"][0].code, "invalid_type");
-        let e = field(json!({"name": "t", "type": "ydoc"})).unwrap_err();
-        assert_eq!(e.0["fields.0.type"][0].code, "unsupported_type");
+        let f = field(json!({"name": "body", "type": "ydoc"})).unwrap();
+        assert_eq!(f.sql_type(), "BLOB");
+        assert_eq!(f.normalize(&json!("x")).unwrap_err().code, "read_only");
         let e = field(json!({"name": "t", "type": "file", "thumbs": ["10x10", "big"], "mime_types": ["image"]})).unwrap_err();
         assert!(
             e.0.contains_key("fields.0.thumbs") && e.0.contains_key("fields.0.mime_types"),

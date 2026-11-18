@@ -1,0 +1,22 @@
+{
+	"name": "rackend-collab-editor",
+	"private": true,
+	"license": "Apache-2.0",
+	"type": "module",
+	"scripts": {
+		"build": "bun build src/main.ts --outdir dist --target browser --minify && cp index.html dist/",
+		"dev": "bun run build && bun serve.ts",
+		"acceptance": "bun acceptance.ts"
+	},
+	"dependencies": {
+		"@tiptap/core": "3.32.2",
+		"@tiptap/extension-collaboration": "3.32.2",
+		"@tiptap/extension-collaboration-caret": "3.32.2",
+		"@tiptap/pm": "3.32.2",
+		"@tiptap/starter-kit": "3.32.2",
+		"lib0": "0.2.120",
+		"y-protocols": "1.0.7",
+		"y-websocket": "3.1.0",
+		"yjs": "13.6.33"
+	}
+}

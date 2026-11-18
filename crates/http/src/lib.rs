@@ -469,6 +469,31 @@ pub fn routes() -> Vec<RouteSpec> {
         r(Method::GET, "/api/realtime", "/api/realtime"),
         r(Method::POST, "/api/realtime", "/api/realtime"),
         r(Method::GET, "/api/ws", "/api/ws"),
+        r(Method::GET, "/api/channels", "/api/channels"),
+        r(Method::POST, "/api/channels", "/api/channels"),
+        r(Method::GET, "/api/channels/live", "/api/channels/live"),
+        r(Method::PATCH, "/api/channels/{id}", "/api/channels/x"),
+        r(Method::DELETE, "/api/channels/{id}", "/api/channels/x"),
+        r(
+            Method::GET,
+            "/api/collab/{collection}/{record_id}/{field}",
+            "/api/collab/posts/x/body",
+        ),
+        r(
+            Method::POST,
+            "/api/collab/{collection}/{record_id}/{field}/ticket",
+            "/api/collab/posts/x/body/ticket",
+        ),
+        r(
+            Method::GET,
+            "/api/collab/{collection}/{record_id}/{field}/state",
+            "/api/collab/posts/x/body/state",
+        ),
+        r(
+            Method::PUT,
+            "/api/collab/{collection}/{record_id}/{field}/state",
+            "/api/collab/posts/x/body/state",
+        ),
         r(Method::GET, "/api/files/usage", "/api/files/usage"),
         r(
             Method::POST,
@@ -563,7 +588,7 @@ pub fn routes() -> Vec<RouteSpec> {
 /// The full application router with all middleware.
 pub fn router(state: AppState, cfg: HttpConfig) -> Router {
     use api::{
-        admin, auth, broker, collections, files, observe, openapi, realtime, records, users,
+        admin, auth, broker, collab, collections, files, observe, openapi, realtime, records, users,
     };
     let app = Router::new()
         .route("/api/health", get(health::health))
@@ -805,6 +830,30 @@ pub fn router(state: AppState, cfg: HttpConfig) -> Router {
         .route("/metrics", get(observe::prometheus))
         .route("/api/realtime", get(realtime::sse).post(realtime::bind))
         .route("/api/ws", get(realtime::ws))
+        .route(
+            "/api/collab/{collection}/{record_id}/{field}",
+            get(collab::ws),
+        )
+        .route(
+            "/api/collab/{collection}/{record_id}/{field}/ticket",
+            post(collab::ticket),
+        )
+        .route(
+            "/api/collab/{collection}/{record_id}/{field}/state",
+            get(collab::state_get).merge(
+                axum::routing::put(collab::state_put)
+                    .layer(DefaultBodyLimit::max(16 * 1024 * 1024)),
+            ),
+        )
+        .route(
+            "/api/channels",
+            get(realtime::channels).post(realtime::channel_create),
+        )
+        .route("/api/channels/live", get(realtime::channels_live))
+        .route(
+            "/api/channels/{id}",
+            axum::routing::patch(realtime::channel_update).delete(realtime::channel_delete),
+        )
         .route("/api/files/token", post(files::token))
         .route("/api/files/usage", get(files::usage))
         .route("/api/files/{c}/{id}/{filename}", get(files::download))

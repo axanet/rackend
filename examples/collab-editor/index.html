@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>rackend collaborative editor</title>
+<style>
+  :root { color-scheme: light dark; font: 16px/1.5 system-ui, sans-serif; }
+  body { max-width: 720px; margin: 48px auto; padding: 0 16px; }
+  form { display: flex; gap: 8px; flex-wrap: wrap; }
+  [hidden] { display: none !important; }
+  input { height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid color-mix(in srgb, currentColor 30%, transparent); background: none; color: inherit; font: inherit; }
+  button { height: 40px; padding: 0 16px; border-radius: 999px; border: 1px solid currentColor; background: none; color: inherit; font: inherit; cursor: pointer; }
+  #status { font-size: 14px; opacity: 0.75; }
+  #editor .tiptap { min-height: 240px; padding: 12px 16px; border-radius: 8px; border: 1px solid color-mix(in srgb, currentColor 20%, transparent); outline: none; }
+  #editor .tiptap:focus { border-color: color-mix(in srgb, currentColor 50%, transparent); }
+  .collaboration-carets__caret { position: relative; margin: 0 -1px; border-left: 1px solid; border-right: 1px solid; word-break: normal; pointer-events: none; }
+  .collaboration-carets__label { position: absolute; top: -1.4em; left: -1px; padding: 0 6px; border-radius: 4px 4px 4px 0; color: #fff; font-size: 12px; font-weight: 600; line-height: 1.4; white-space: nowrap; user-select: none; }
+</style>
+</head>
+<body>
+<h1>rackend collaborative editor</h1>
+<p>Tiptap and <code>y-websocket</code> on a <code>ydoc</code> field. Open this page in two windows to co-edit.</p>
+<form id="signin">
+  <input id="email" type="email" placeholder="Email" autocomplete="username" required>
+  <input id="password" type="password" placeholder="Password" autocomplete="current-password" required>
+  <button>Sign in</button>
+</form>
+<p id="status" role="status">Signed out.</p>
+<div id="editor"></div>
+<script type="module" src="./main.js"></script>
+</body>
+</html>

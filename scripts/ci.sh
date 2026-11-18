@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shared CI entry point for GitHub Actions and Forgejo Actions (SPEC §19).
-# Usage: scripts/ci.sh <lint|test|upgrade|clients|docker-smoke IMAGE>
+# Usage: scripts/ci.sh <lint|test|upgrade|clients|collab|docker-smoke IMAGE>
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
@@ -16,6 +16,9 @@ case "${1:-}" in
     ;;
   clients)
     mise run test:clients
+    ;;
+  collab)
+    mise run test:collab
     ;;
   docker-smoke)
     image="${2:?image required}"
@@ -62,7 +65,7 @@ case "${1:-}" in
     echo "docker smoke test passed"
     ;;
   *)
-    echo "usage: $0 <lint|test|upgrade|clients|docker-smoke IMAGE>" >&2
+    echo "usage: $0 <lint|test|upgrade|clients|collab|docker-smoke IMAGE>" >&2
     exit 2
     ;;
 esac

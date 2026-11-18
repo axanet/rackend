@@ -73,6 +73,7 @@ base64 = { workspace = true }
 image = { workspace = true }
 kamadak-exif = { workspace = true }
 tokio-tungstenite = { workspace = true }
+yrs = { workspace = true }
 futures-util = { workspace = true }
 
 [[test]]

@@ -799,6 +799,14 @@ pub(crate) fn purge_in_tx(
         TrashKind::Collection => None,
     };
     tx.files_mark_deleted_where(&t.collection_id, None, field_id, &format_timestamp(now))?;
+    // So do stored collaborative document updates.
+    let ydoc_field = match t.kind {
+        TrashKind::Field => t.definition.get("name").and_then(Value::as_str),
+        TrashKind::Collection => None,
+    };
+    if t.kind == TrashKind::Collection || ydoc_field.is_some() {
+        tx.ydoc_updates_delete_where(&t.collection_id, None, ydoc_field)?;
+    }
     tx.schema_history_insert(&HistoryEntry {
         id: Uuid::now_v7().to_string(),
         collection_id: Some(t.collection_id.clone()),

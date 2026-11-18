@@ -8,10 +8,12 @@ use rackend_core::auth::broker::{IdentityRow, OtpRow, ProviderRow, TokenPurpose,
 use rackend_core::auth::keys::KeyRow;
 use rackend_core::auth::oauth::{ClientKind, ClientRow, CodeRow, ConsentRow};
 use rackend_core::auth::{PasskeyRow, SessionRow, SubjectType, Superuser};
+use rackend_core::domain::channel::{ChannelDef, ChannelOptions};
 use rackend_core::domain::files::FileRow;
 use rackend_core::domain::{
     ActorType, AuditEntry, Collection, DdlStep, HistoryEntry, Record, TrashEntry, TrashKind,
 };
+use rackend_core::ports::YdocStored;
 use rackend_core::ports::{
     AnyBox, AuditQuery, ReadJob, ReadTx, RecordPage, RecordQuery, SettingRow, Store, StoreFuture,
     WriteJob, WriteTx,
@@ -884,6 +886,68 @@ impl ReadTx for SqliteTx<'_> {
             .map_err(sql)
     }
 
+    fn channels_list(&mut self) -> CoreResult<Vec<ChannelDef>> {
+        self.collect(
+            "SELECT id, name, pattern, join_rule, publish_rule, presence, options, created, updated FROM _channels ORDER BY name",
+            [],
+            |r| {
+                Ok(ChannelDef {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    pattern: r.get(2)?,
+                    join_rule: r.get(3)?,
+                    publish_rule: r.get(4)?,
+                    presence: r.get(5)?,
+                    options: serde_json::from_str::<ChannelOptions>(&r.get::<_, String>(6)?).unwrap_or_default(),
+                    created: r.get(7)?,
+                    updated: r.get(8)?,
+                })
+            },
+        )
+    }
+
+    fn rule_holds(&mut self, rule: &TypedRule, req: &RequestValues) -> CoreResult<bool> {
+        let frag = crate::rules_sql::compile(rule, 0);
+        let values = frag.values(req);
+        let sql = format!(
+            "SELECT EXISTS (SELECT 1 FROM (SELECT 1) t WHERE ({}))",
+            frag.sql
+        );
+        let conn = self.conn;
+        crate::records::with_timeout(conn, self.timeout, || {
+            conn.prepare_cached(&sql)?
+                .query_row(params_from_iter(values.iter()), |row| row.get::<_, bool>(0))
+        })
+    }
+
+    fn ydoc_load(
+        &mut self,
+        c: &Collection,
+        record_id: &str,
+        field: &str,
+    ) -> CoreResult<Option<YdocStored>> {
+        let state: Option<Option<Vec<u8>>> = self
+            .conn
+            .query_row(
+                &format!(
+                    "SELECT {} FROM {} WHERE \"id\" = ?1",
+                    crate::rules_sql::q(field),
+                    crate::rules_sql::q(&c.name)
+                ),
+                [record_id],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(sql)?;
+        let Some(state) = state else { return Ok(None) };
+        let updates = self.collect(
+            "SELECT id, \"update\" FROM _ydoc_updates WHERE collection_id = ?1 AND record_id = ?2 AND field = ?3 ORDER BY id",
+            params![c.id.to_string(), record_id, field],
+            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Vec<u8>>(1)?)),
+        )?;
+        Ok(Some(YdocStored { state, updates }))
+    }
+
     fn oauth_clients_list(&mut self) -> CoreResult<Vec<ClientRow>> {
         self.collect(
             &format!("SELECT {CLIENT_COLS} FROM _oauth_clients ORDER BY created, id"),
@@ -1449,6 +1513,106 @@ impl WriteTx for SqliteTx<'_> {
         Ok(row)
     }
 
+    fn channel_put(&mut self, c: &ChannelDef) -> CoreResult<()> {
+        self.conn
+            .execute(
+                "INSERT INTO _channels (id, name, pattern, join_rule, publish_rule, presence, options, created, updated)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                 ON CONFLICT (id) DO UPDATE SET name = excluded.name, pattern = excluded.pattern,
+                 join_rule = excluded.join_rule, publish_rule = excluded.publish_rule, presence = excluded.presence,
+                 options = excluded.options, updated = excluded.updated",
+                params![
+                    c.id,
+                    c.name,
+                    c.pattern,
+                    c.join_rule,
+                    c.publish_rule,
+                    c.presence,
+                    serde_json::to_string(&c.options).unwrap_or_else(|_| "{}".into()),
+                    c.created,
+                    c.updated
+                ],
+            )
+            .map(drop)
+            .map_err(|e| match e {
+                rusqlite::Error::SqliteFailure(f, _) if f.code == rusqlite::ErrorCode::ConstraintViolation => {
+                    CoreError::Conflict("A channel with this name or pattern exists.".into())
+                }
+                other => sql(other),
+            })
+    }
+
+    fn channel_delete(&mut self, id: &str) -> CoreResult<bool> {
+        self.conn
+            .execute("DELETE FROM _channels WHERE id = ?1", [id])
+            .map(|n| n > 0)
+            .map_err(sql)
+    }
+
+    fn ydoc_append(
+        &mut self,
+        collection_id: &str,
+        record_id: &str,
+        field: &str,
+        updates: &[Vec<u8>],
+        now: &str,
+    ) -> CoreResult<i64> {
+        let mut stmt = self
+            .conn
+            .prepare_cached(
+                "INSERT INTO _ydoc_updates (collection_id, record_id, field, \"update\", created) VALUES (?1, ?2, ?3, ?4, ?5)",
+            )
+            .map_err(sql)?;
+        for u in updates {
+            stmt.execute(params![collection_id, record_id, field, u, now])
+                .map_err(sql)?;
+        }
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    fn ydoc_compact(
+        &mut self,
+        c: &Collection,
+        record_id: &str,
+        field: &str,
+        state: &[u8],
+        up_to: i64,
+    ) -> CoreResult<()> {
+        self.conn
+            .execute(
+                &format!(
+                    "UPDATE {} SET {} = ?2 WHERE \"id\" = ?1",
+                    crate::rules_sql::q(&c.name),
+                    crate::rules_sql::q(field)
+                ),
+                params![record_id, state],
+            )
+            .map_err(sql)?;
+        self.conn
+            .execute(
+                "DELETE FROM _ydoc_updates WHERE collection_id = ?1 AND record_id = ?2 AND field = ?3 AND id <= ?4",
+                params![c.id.to_string(), record_id, field, up_to],
+            )
+            .map(drop)
+            .map_err(sql)
+    }
+
+    fn ydoc_updates_delete_where(
+        &mut self,
+        collection_id: &str,
+        record_id: Option<&str>,
+        field: Option<&str>,
+    ) -> CoreResult<u64> {
+        self.conn
+            .execute(
+                "DELETE FROM _ydoc_updates WHERE collection_id = ?1
+                 AND (?2 IS NULL OR record_id = ?2) AND (?3 IS NULL OR field = ?3)",
+                params![collection_id, record_id, field],
+            )
+            .map(|n| n as u64)
+            .map_err(sql)
+    }
+
     fn oauth_client_put(&mut self, c: &ClientRow) -> CoreResult<()> {
         self.conn
             .execute(
@@ -1680,7 +1844,14 @@ impl WriteTx for SqliteTx<'_> {
     fn provider_put(&mut self, p: &ProviderRow) -> CoreResult<()> {
         self.conn
             .execute(
-                &format!("INSERT OR REPLACE INTO _auth_providers ({PROVIDER_COLS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"),
+                &format!(
+                    "INSERT INTO _auth_providers ({PROVIDER_COLS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                     ON CONFLICT (id) DO UPDATE SET name = excluded.name, kind = excluded.kind, preset = excluded.preset,
+                     issuer = excluded.issuer, client_id = excluded.client_id, client_secret_enc = excluded.client_secret_enc,
+                     scopes = excluded.scopes, collection_id = excluded.collection_id,
+                     auto_link_verified_email = excluded.auto_link_verified_email, claim_mapping = excluded.claim_mapping,
+                     enabled = excluded.enabled, created = excluded.created, updated = excluded.updated"
+                ),
                 params![
                     p.id,
                     p.name,

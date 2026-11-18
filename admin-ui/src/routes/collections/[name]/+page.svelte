@@ -72,7 +72,8 @@
 		};
 	});
 
-	const columns = $derived(collection ? ['id', ...collection.fields.map((f) => f.name), 'updated'] : []);
+	// Collaborative documents are not part of the record JSON.
+	const columns = $derived(collection ? ['id', ...collection.fields.filter((f) => f.type !== 'ydoc').map((f) => f.name), 'updated'] : []);
 
 	function toggleSort(col: string) {
 		const sortable = col === 'id' || col === 'updated' || collection?.fields.some((f) => f.name === col && !['json'].includes(f.type) && ((f.max_select as number) ?? 1) <= 1);

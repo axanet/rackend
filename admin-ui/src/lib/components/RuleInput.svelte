@@ -14,7 +14,7 @@
 		value: string | null;
 		label: string;
 		operation: string;
-		collection: unknown;
+		collection?: unknown;
 		id: string;
 	} = $props();
 
@@ -39,7 +39,9 @@
 		timer = setTimeout(async () => {
 			checking = true;
 			try {
-				await post('/api/rules/check', { collection: def, rule, operation });
+				// `channel-join` / `channel-publish`: channel rules, no collection.
+				const op = operation.startsWith('channel') ? 'channel' : operation;
+				await post('/api/rules/check', { collection: def, rule, operation: op });
 				error = null;
 			} catch (e) {
 				if (e instanceof ApiError && e.code === 'rule_compile_error' && e.position) {
@@ -99,6 +101,8 @@
 		</div>
 	{:else if mode === 'locked'}
 		<p class="state subtle"><Icon name="lock" />Locked: superusers only.</p>
+	{:else if operation === 'channel-publish'}
+		<p class="state subtle">Every member of the channel.</p>
 	{:else if operation === 'update' || operation === 'delete'}
 		<p class="state write"><Icon name="alert" />Anyone, including signed-out visitors, can {operation} every record.</p>
 	{:else}

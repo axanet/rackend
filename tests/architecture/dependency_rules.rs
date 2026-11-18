@@ -33,6 +33,8 @@ const CORE_ALLOWED: &[&str] = &[
     "regex",
     // ADR 0011
     "chacha20poly1305",
+    // ADR 0018: Yjs-compatible CRDT, pure computation.
+    "yrs",
 ];
 
 /// Crates that must never appear anywhere in `core`'s dependency tree.

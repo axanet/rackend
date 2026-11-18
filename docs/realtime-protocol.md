@@ -1,6 +1,6 @@
 # Realtime protocol
 
-rackend pushes record changes to clients over server-sent events (SSE) or a WebSocket. The SSE handshake is in the OpenAPI document; this page describes everything OpenAPI cannot: the event stream, the WebSocket messages, and the channel and collaboration protocols that come with M9.
+rackend pushes record changes to clients over server-sent events (SSE) or a WebSocket. The SSE handshake is in the OpenAPI document; this page describes everything OpenAPI cannot: the event stream, the WebSocket messages, and the channel and collaboration protocols.
 
 ## Topics and events
 
@@ -107,20 +107,89 @@ Server to client:
 - The server pings every 25 seconds and closes the connection after 60 seconds without an answer.
 - The server closes with code `4000` and the reason as close reason: `session_revoked`, `slow_consumer`, `shutdown` or `timeout`.
 
-## Channels and presence (M9)
+## Channels and presence
 
-Not available yet: `join`, `leave`, `pub` and `meta` messages answer `err` with `bad_request`. When they arrive, channels carry ephemeral messages between members of a named channel (`room:42`), with presence lists, on the same WebSocket:
+Channels carry ephemeral messages between the members of a named channel, such as `room:42`, with presence lists, on the same WebSocket. Superusers define channels in the admin UI (Channels) or with `/api/channels`:
+
+| Field | Meaning |
+| --- | --- |
+| `pattern` | `lobby` (one channel) or `room:*` (one channel per key; `room:42` has the key `42`, at most 128 characters, available to rules as `@channel.key`). |
+| `join_rule` | Who may join: `null` superusers only, `""` anyone, or a rule with `@request.auth.*`, `@channel.key` and `@collection.*`. |
+| `publish_rule` | Who may publish: `null` superusers only, `""` every member, or a rule. |
+| `presence` | Whether members see each other (default `true`). |
+| `options` | `max_members` (1000), `rate_per_s` (20 messages per second per connection), `max_payload` (16384 bytes of `data` JSON), `echo` (false: senders do not receive their own messages). |
+
+Example join rule: `@collection.room_members.room = @channel.key && @collection.room_members.user = @request.auth.id`.
+
+Client to server:
 
 ```json
 { "t": "join",  "id": 3, "channel": "room:42", "meta": { "status": "typing" } }
 { "t": "leave", "id": 4, "channel": "room:42" }
 { "t": "pub",   "id": 5, "channel": "room:42", "event": "cursor", "data": { "x": 10 } }
 { "t": "meta",  "id": 6, "channel": "room:42", "meta": { "status": "idle" } }
-
-{ "t": "msg",      "channel": "room:42", "event": "cursor", "from": { "user_id": "…", "conn_id": "…" }, "data": { … } }
-{ "t": "presence", "channel": "room:42", "kind": "sync", "members": [ … ] }
 ```
 
-## Collaborative editing (M9)
+Server to client:
 
-Not available yet. `ydoc` fields will be edited through `GET /api/collab/{collection}/{record_id}/{field}`, a WebSocket that speaks the binary y-protocols sync and awareness protocol, so `y-websocket` clients (Tiptap, BlockNote, CodeMirror and Monaco bindings) work unchanged. Connecting needs the view rule; changes need the update rule.
+```json
+{ "t": "msg",      "channel": "room:42", "event": "cursor", "from": { "user_id": "…", "conn_id": "…" }, "data": { "x": 10 } }
+{ "t": "presence", "channel": "room:42", "kind": "sync",  "members": [ { "user_id": "…", "conn_id": "…", "collection": "users", "meta": { … }, "joined_at": "…" } ] }
+{ "t": "presence", "channel": "room:42", "kind": "join",  "members": [ … ], "replaced": "…" }
+{ "t": "presence", "channel": "room:42", "kind": "meta",  "members": [ … ] }
+{ "t": "presence", "channel": "room:42", "kind": "leave", "members": [ … ], "reason": "forbidden" }
+```
+
+- `join`, `leave` and `meta` reply `ack` or `err`. `pub` replies only when it has an `id` (errors are always sent). Failures use the problem codes: `forbidden` (rules), `conflict` (channel full), `rate_limited`, `payload_too_large`, `bad_request` (not joined), `validation_failed` (unknown channel, bad `meta` or `event`).
+- `meta` is a JSON object of at most 1 KB; `event` is 1 to 64 characters.
+- Messages are not stored. They reach the members joined at that moment, at most once.
+- On `join` the new member gets `sync` with every member; the others get `join`. Joining again updates `meta`. `conn_id` identifies a connection publicly (the `client_id` stays secret).
+- A member whose connection drops stays listed for 3 seconds. When the same account joins again within that window, the others get one `join` whose `replaced` names the old `conn_id`, and no `leave`, so online lists do not flicker. Otherwise everyone gets `leave` 3 to 4 seconds after the drop.
+- Rules are checked on join and again every 30 seconds. A member who no longer passes the join rule is removed: everyone, including that member, gets `leave` with `reason: "forbidden"`. Deleting a channel definition, or changing its pattern, removes its members the same way.
+- `user_id` is `null` for anonymous members; superusers appear with the collection `_superusers`.
+
+## Collaborative editing
+
+A `ydoc` field holds a [Yjs](https://yjs.dev) document. Clients edit it through a WebSocket that speaks the binary y-protocols sync and awareness protocol, so `y-websocket` (and editors built on it: Tiptap, BlockNote, CodeMirror and Monaco bindings) works unchanged:
+
+```
+GET /api/collab/{collection}/{record_id}/{field}
+```
+
+`y-websocket` builds the URL from a server URL and a room name: use `wss://your-host/api/collab/{collection}/{record_id}` as the server URL and the field name as the room.
+
+### Authentication
+
+- Cookie or `Authorization` header on the upgrade, as for `/api/ws` (cookie sessions need an allowed `Origin`).
+- Browsers cannot set headers on WebSockets, and tokens never go into URLs. Instead, fetch a ticket with the access token and pass it as the `ticket` query parameter. A ticket works once, for 30 seconds, for the document it was issued for; fetch a new one before every reconnect.
+
+```
+POST /api/collab/{collection}/{record_id}/{field}/ticket   → { "ticket": "…", "expires_in": 30 }
+GET  /api/collab/{collection}/{record_id}/{field}?ticket=…
+```
+
+`examples/collab-editor` shows a Tiptap editor with ticket refresh on reconnect.
+
+### Access
+
+- Connecting needs the view rule of the record (otherwise `404`, before the upgrade).
+- Changes need the update rule. Without it the connection is read-only: the client receives the document and awareness, but its updates are dropped and answered with message type `100`, a byte array holding `{"code": "read_only", "message": "…"}`. With `y-websocket`, read it with `provider.messageHandlers[100] = (encoder, decoder) => …` and `lib0/decoding.readVarUint8Array(decoder)`.
+- Both rules are checked again every 30 seconds: losing view access closes the connection (code 4000, `forbidden`), losing update access makes it read-only.
+- A document that would exceed the field's `max_size` (default 10 MB) rejects further updates with `{"code": "too_large"}`.
+- Turn off y-websocket's BroadcastChannel (`disableBc: true`): it syncs tabs of the same browser directly, past the server and its read-only check.
+
+### Persistence
+
+- Updates are appended to the database every 250 ms and folded into the record's column (compaction) after 500 updates, after 30 seconds without updates, when the document unloads (60 seconds after the last client left) and on shutdown. A crash loses at most the last 250 ms on the server; connected clients still hold those edits and send them again when they reconnect.
+- While a document is edited, the record's `updated` changes at most every 30 seconds and record subscribers get an `update` event. The `ydoc` field never appears in record JSON and cannot be used in rules or set through the records API.
+- Awareness (cursors, selections, names) is relayed in memory only.
+- Deleting the record closes its documents (close reason `deleted`) and removes their stored updates.
+
+### State over HTTP
+
+```
+GET /api/collab/{collection}/{record_id}/{field}/state   → application/octet-stream (view rule)
+PUT /api/collab/{collection}/{record_id}/{field}/state   ← application/octet-stream (update rule)
+```
+
+Both use one Yjs update in the v1 encoding (`Y.encodeStateAsUpdate(doc)`, `Y.applyUpdate(doc, bytes)`), for server-side rendering, exports and backups. `PUT` replaces the stored document and disconnects its editors (close reason `replaced`). Yjs merges rather than replaces, so clients must start from a new `Y.Doc` after a replace, or their old content comes back with their next sync.

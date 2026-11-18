@@ -147,6 +147,8 @@ fn value_schema(f: &Field, schema: &Schema, owner: &str) -> Value {
         FieldKind::File { .. } => {
             json!({ "type": "string", "description": "Stored filename; download it from /api/files/{collection}/{id}/{filename}." })
         }
+        // Left out of records; edited through /api/collab (docs/realtime-protocol.md).
+        FieldKind::Ydoc { .. } => json!({}),
     };
     if f.is_multi() {
         json!({ "type": "array", "items": one })
@@ -336,7 +338,11 @@ impl Builder<'_> {
         let schema = self.input.schema;
         let name = pascal(&c.name);
         let auth = is_auth(c);
-        let fields: Vec<&Field> = c.fields.iter().collect();
+        let fields: Vec<&Field> = c
+            .fields
+            .iter()
+            .filter(|f| !matches!(f.kind, FieldKind::Ydoc { .. }))
+            .collect();
 
         // Record.
         let mut props = Map::new();

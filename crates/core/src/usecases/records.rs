@@ -843,6 +843,12 @@ fn delete_record(
     cause: Option<&str>,
 ) -> Result<Option<String>> {
     tx.record_delete(c, &r.id.to_string())?;
+    if c.fields
+        .iter()
+        .any(|f| matches!(f.kind, FieldKind::Ydoc { .. }))
+    {
+        tx.ydoc_updates_delete_where(&c.id.to_string(), Some(&r.id.to_string()), None)?;
+    }
     w.emit(c, Action::Delete, Some(r), None);
     tx.files_mark_deleted_where(
         &c.id.to_string(),

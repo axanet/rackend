@@ -1,6 +1,7 @@
 //! Collections, fields, records and their validation (SPEC §8).
 
 pub mod audit;
+pub mod channel;
 pub mod collection;
 pub mod cron;
 pub mod ddl;

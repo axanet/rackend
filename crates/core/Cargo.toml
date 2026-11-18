@@ -30,6 +30,7 @@ chacha20poly1305 = { workspace = true }
 rsa = { workspace = true }
 p256 = { workspace = true }
 webauthn-rs = { workspace = true }
+yrs = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

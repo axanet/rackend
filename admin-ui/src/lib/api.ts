@@ -149,7 +149,7 @@ export function message(e: unknown): string {
 
 // ---- Types mirrored from the API -------------------------------------------
 
-export type FieldType = 'text' | 'email' | 'url' | 'number' | 'bool' | 'date' | 'autodate' | 'select' | 'json' | 'relation' | 'file';
+export type FieldType = 'text' | 'email' | 'url' | 'number' | 'bool' | 'date' | 'autodate' | 'select' | 'json' | 'relation' | 'file' | 'ydoc';
 
 export interface Field {
 	id?: string;

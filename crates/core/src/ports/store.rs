@@ -14,6 +14,7 @@ use crate::auth::broker::{IdentityRow, OtpRow, ProviderRow, TokenPurpose, TokenR
 use crate::auth::keys::KeyRow;
 use crate::auth::oauth::{ClientRow, CodeRow, ConsentRow};
 use crate::auth::{PasskeyRow, SessionRow, Superuser};
+use crate::domain::channel::ChannelDef;
 use crate::domain::files::FileRow;
 use crate::domain::{AuditEntry, Collection, DdlStep, Field, HistoryEntry, Record, TrashEntry};
 use crate::rules::TypedRule;
@@ -41,6 +42,15 @@ pub struct StoreStats {
     pub db_size: u64,
     /// `data.db-wal` bytes.
     pub wal_size: u64,
+}
+
+/// A `ydoc` field as stored.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct YdocStored {
+    /// The compacted state (`None` for a new document).
+    pub state: Option<Vec<u8>>,
+    /// Updates since the last compaction: `(id, update)`.
+    pub updates: Vec<(i64, Vec<u8>)>,
 }
 
 /// One row of `_settings` (SPEC §15).
@@ -222,6 +232,18 @@ pub trait ReadTx {
     fn otp_get(&mut self, id: &str) -> Result<Option<OtpRow>>;
     /// All OAuth clients.
     fn oauth_clients_list(&mut self) -> Result<Vec<ClientRow>>;
+    /// All channel definitions.
+    fn channels_list(&mut self) -> Result<Vec<ChannelDef>>;
+    /// Whether a rule without a current record (a channel rule) holds.
+    fn rule_holds(&mut self, rule: &TypedRule, req: &RequestValues) -> Result<bool>;
+    /// The stored state of a `ydoc` field and its pending updates, `None`
+    /// when the record does not exist.
+    fn ydoc_load(
+        &mut self,
+        c: &Collection,
+        record_id: &str,
+        field: &str,
+    ) -> Result<Option<YdocStored>>;
     /// The consent a user gave a client.
     fn oauth_consent_get(
         &mut self,
@@ -346,6 +368,37 @@ pub trait WriteTx: ReadTx {
     fn identity_touch(&mut self, id: &str, now: &str) -> Result<()>;
     /// Unlinks an identity of `user_id`; returns whether it existed.
     fn identity_delete(&mut self, user_id: &str, id: &str) -> Result<bool>;
+    /// Inserts or replaces a channel; a taken name or pattern is a conflict.
+    fn channel_put(&mut self, c: &ChannelDef) -> Result<()>;
+    /// Deletes a channel.
+    fn channel_delete(&mut self, id: &str) -> Result<bool>;
+    /// Appends Yjs updates of a document; returns the id of the last one.
+    fn ydoc_append(
+        &mut self,
+        collection_id: &str,
+        record_id: &str,
+        field: &str,
+        updates: &[Vec<u8>],
+        now: &str,
+    ) -> Result<i64>;
+    /// Writes the merged state to the record and deletes the updates up to
+    /// `up_to` (inclusive) that it contains.
+    fn ydoc_compact(
+        &mut self,
+        c: &Collection,
+        record_id: &str,
+        field: &str,
+        state: &[u8],
+        up_to: i64,
+    ) -> Result<()>;
+    /// Deletes stored document updates of a collection, optionally only of
+    /// one record or one field (record deleted, trash purged).
+    fn ydoc_updates_delete_where(
+        &mut self,
+        collection_id: &str,
+        record_id: Option<&str>,
+        field: Option<&str>,
+    ) -> Result<u64>;
     /// Inserts or replaces an OAuth client.
     fn oauth_client_put(&mut self, c: &ClientRow) -> Result<()>;
     /// Deletes a client, its codes and consents; returns whether it existed.

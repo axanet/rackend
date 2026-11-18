@@ -70,3 +70,13 @@ jobs:
       - uses: jdx/mise-action@v3
       - uses: Swatinem/rust-cache@v2
       - run: scripts/ci.sh clients
+
+  collab:
+    # Collaborative editing with y-websocket clients across a server kill
+    # and restart; read-only edits are never stored (SPEC §20 M9).
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: jdx/mise-action@v3
+      - uses: Swatinem/rust-cache@v2
+      - run: scripts/ci.sh collab
