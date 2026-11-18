@@ -31,6 +31,12 @@ reproduction is perfect) and we will take it from there.
 - Tools and tasks are managed with [mise](https://mise.jdx.dev); see the
   [README](README.md). `mise run lint` and `mise run test` must pass.
 - Decisions the specification leaves open are recorded in [docs/adr](docs/adr).
+- The user documentation is on the website and lives in
+  [rackend-homepage](https://github.com/axanet/rackend-homepage). Its `next`
+  docs (`src/content/docs/docs/next/`) describe `main`: a change to behaviour
+  updates them in a pull request there, merged before the change here. The
+  error contract test and the getting started guide run against them, so
+  keep a rackend-homepage checkout next to this one or set `RACKEND_DOCS_DIR`.
 - Bundled third-party material keeps its own license; see [NOTICE](NOTICE).
   Font files and license texts are used unmodified.
 - Never use the em dash in code, docs, UI text or commit messages.
@@ -83,5 +89,11 @@ The workflow pushes as the release GitHub App (repository variable
 rulesets let push to `main` and create release tags. Its push runs CI on the
 release commit, and the tag runs the release workflow again for step 4.
 `mise run release` does steps 1 to 3 from a local checkout, for someone the
-rulesets let bypass. A release needs at least one `feat`, `fix` or `perf`
+rulesets let bypass.
+
+After a stable release, update the docs in rackend-homepage with
+`mise run docs:release x.y.z`: a patch release only changes the version they
+name; a new minor version archives the current docs under `/docs/<x.y>/` and
+makes `next` the latest. Take the screenshots of a new minor version with
+`mise run docs:screenshots` there. A release needs at least one `feat`, `fix` or `perf`
 commit (or a breaking change) since the latest tag.

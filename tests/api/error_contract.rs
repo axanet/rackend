@@ -1,6 +1,7 @@
 //! Error contract (SPEC §10.2.6): every failure is an RFC 9457 problem.
 
 use std::collections::HashSet;
+use std::path::PathBuf;
 
 use axum::Router;
 use axum::body::Body;
@@ -75,9 +76,29 @@ fn probe_app() -> Router {
     )
 }
 
+/// The `next` docs of the website (rackend-homepage), which describe this
+/// branch: `RACKEND_DOCS_DIR`, else a rackend-homepage checkout next to rackend.
+fn docs_dir() -> PathBuf {
+    std::env::var_os("RACKEND_DOCS_DIR").map_or_else(
+        || {
+            PathBuf::from(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../../rackend-homepage/src/content/docs/docs/next"
+            ))
+        },
+        PathBuf::from,
+    )
+}
+
 fn documented_codes() -> HashSet<String> {
-    let doc = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/errors.md"))
-        .unwrap();
+    let path = docs_dir().join("reference/errors.md");
+    let doc = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+        panic!(
+            "{}: {e}. Problem codes are documented in rackend-homepage: clone it next to \
+             rackend or set RACKEND_DOCS_DIR to its src/content/docs/docs/next",
+            path.display()
+        )
+    });
     doc.lines()
         .filter_map(|l| l.strip_prefix("### "))
         .map(|s| s.trim().to_owned())
@@ -108,7 +129,7 @@ pub fn assert_problem(r: &Reply) -> Value {
     );
     assert!(
         documented_codes().contains(code),
-        "{code} must be documented in docs/errors.md"
+        "{code} must be documented in the docs (reference/errors.md)"
     );
     let rid = r
         .headers
@@ -126,7 +147,7 @@ fn every_registered_code_is_documented() {
     for code in rackend_http::ProblemCode::ALL {
         assert!(
             documented.contains(code.as_str()),
-            "{} missing from docs/errors.md",
+            "{} missing from the docs (reference/errors.md)",
             code.as_str()
         );
     }

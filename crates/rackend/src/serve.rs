@@ -45,7 +45,7 @@ pub async fn run(cfg: Config, version: &'static str) -> Result<(), Fatal> {
         tracing::warn!(
             data_dir = %dir.root().display(),
             filesystem = kind,
-            "the data directory is on a network filesystem; SQLite locking is unreliable there and data can be corrupted. Use a local disk. See https://github.com/axanet/rackend/blob/main/docs/deployment.md#storage"
+            "the data directory is on a network filesystem; SQLite locking is unreliable there and data can be corrupted. Use a local disk. See https://rackend.axanet.ch/docs/run/docker/#data-directory"
         );
     }
 

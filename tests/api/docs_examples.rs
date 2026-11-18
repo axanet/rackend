@@ -1,4 +1,4 @@
-//! Examples from docs/guide/rules.md, run against the real stack so the
+//! Examples from the rules guide (https://rackend.axanet.ch/docs/guides/rules/), run against the real stack so the
 //! documented semantics cannot drift.
 
 use axum::http::{Method, StatusCode};
