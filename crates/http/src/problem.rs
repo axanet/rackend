@@ -16,7 +16,7 @@ use rackend_core::error::UnavailableReason;
 use serde::Serialize;
 
 /// Base of every problem `type` URI.
-pub const TYPE_BASE: &str = "https://github.com/axanet/rackend/blob/main/docs/errors.md#";
+pub const TYPE_BASE: &str = "https://rackend.axanet.ch/docs/reference/errors/#";
 
 /// Media type of problem responses.
 pub const PROBLEM_JSON: &str = "application/problem+json";
@@ -24,7 +24,7 @@ pub const PROBLEM_JSON: &str = "application/problem+json";
 macro_rules! problem_codes {
     ($( $variant:ident => ($code:literal, $status:literal, $title:literal) ),+ $(,)?) => {
         /// The problem type registry (SPEC §10.2.2). Every code is documented
-        /// in `docs/errors.md`. A released code is permanent.
+        /// at https://rackend.axanet.ch/docs/reference/errors/ (source: rackend-homepage). A released code is permanent.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         #[non_exhaustive]
         pub enum ProblemCode { $( #[doc = $title] $variant ),+ }
