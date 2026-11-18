@@ -11,7 +11,7 @@
   <a href="https://github.com/axanet/rackend/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/axanet/rackend/actions/workflows/ci.yml/badge.svg?branch=main"></a>
   <a href="https://github.com/axanet/rackend/actions/workflows/conformance.yml"><img alt="OpenID conformance (nightly)" src="https://github.com/axanet/rackend/actions/workflows/conformance.yml/badge.svg?branch=main"></a>
   <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/license-Apache_2.0-0a8f5f"></a>
-  <a href="docs/deployment.md"><img alt="Container image: ghcr.io/axanet/rackend for linux/amd64 and linux/arm64" src="https://img.shields.io/badge/ghcr.io-amd64_%7C_arm64-0a8f5f?logo=docker&logoColor=white"></a>
+  <a href="https://rackend.axanet.ch/docs/run/docker/"><img alt="Container image: ghcr.io/axanet/rackend for linux/amd64 and linux/arm64" src="https://img.shields.io/badge/ghcr.io-amd64_%7C_arm64-0a8f5f?logo=docker&logoColor=white"></a>
   <a href="Cargo.toml"><img alt="Rust 1.99 or newer" src="https://img.shields.io/badge/rust-1.99%2B-0b0c0e?logo=rust"></a>
   <a href="Cargo.toml"><img alt="unsafe code forbidden" src="https://img.shields.io/badge/unsafe-forbidden-0b0c0e"></a>
   <a href="CONTRIBUTING.md#commit-messages"><img alt="Conventional Commits" src="https://img.shields.io/badge/commits-conventional-0b0c0e?logo=conventionalcommits&logoColor=white"></a>
@@ -19,10 +19,10 @@
 
 <p align="center">
   <a href="https://rackend.axanet.ch"><b>Website</b></a> ·
-  <a href="docs/guide/getting-started.md"><b>Getting started</b></a> ·
-  <a href="docs/guide/README.md"><b>Guides</b></a> ·
-  <a href="docs/deployment.md"><b>Deployment</b></a> ·
-  <a href="docs/adr"><b>Architecture</b></a>
+  <a href="https://rackend.axanet.ch/docs/"><b>Docs</b></a> ·
+  <a href="https://rackend.axanet.ch/docs/getting-started/"><b>Getting started</b></a> ·
+  <a href="https://rackend.axanet.ch/docs/run/docker/"><b>Run rackend</b></a> ·
+  <a href="CHANGELOG.md"><b>Changelog</b></a>
 </p>
 
 **rackend** is a self-hosted, single-binary backend-as-a-service written in Rust, inspired by [PocketBase](https://pocketbase.io). One binary (or one container) gives you a database with an admin UI, a REST API with access rules, authentication (including an OpenID Connect provider), file storage, realtime and observability. SQLite is the only database.
@@ -32,14 +32,14 @@
 
 ## Features
 
-- **Collections and REST API.** Define collections in the admin UI and get a REST API with [access rules](docs/guide/rules.md) that decide who may see and change what.
+- **Collections and REST API.** Define collections in the admin UI and get a REST API with [access rules](https://rackend.axanet.ch/docs/guides/rules/) that decide who may see and change what.
 - **Authentication.** Passwords, passkeys, one-time codes by email, verification, password reset and email change, and sign-in through Google, Microsoft Entra ID, Apple, GitHub or any OpenID Connect issuer.
-- **OpenID Connect provider.** [Sign users in to your own apps](docs/guide/sign-in-for-apps.md) with rackend, tested nightly against the OpenID Foundation conformance suite (Basic OP and Config OP).
+- **OpenID Connect provider.** [Sign users in to your own apps](https://rackend.axanet.ch/docs/guides/sign-in-for-apps/) with rackend, tested nightly against the OpenID Foundation conformance suite (Basic OP and Config OP).
 - **Files.** Uploads on local disk or any S3-compatible bucket (AWS S3, RustFS, Garage, Cloudflare R2), with thumbnails made on demand.
-- **Realtime.** [Record events](docs/realtime-protocol.md) over SSE and WebSocket, channels with presence, and collaborative editing with Yjs.
+- **Realtime.** [Record events](https://rackend.axanet.ch/docs/reference/realtime-protocol/) over SSE and WebSocket, channels with presence, and collaborative editing with Yjs.
 - **Data safety.** Scheduled and on-demand backups with a checksum for every file, a verified snapshot before every upgrade, and secrets encrypted at rest.
 - **Observability.** A dashboard in the admin UI, request logs, an audit log, Prometheus metrics and OpenTelemetry export.
-- **Typed clients.** An [OpenAPI document](docs/guide/clients.md) for generating clients in your language; TypeScript and Python are tested in CI.
+- **Typed clients.** An [OpenAPI document](https://rackend.axanet.ch/docs/guides/clients/) for generating clients in your language; TypeScript and Python are tested in CI.
 - **Small and portable.** One container image for linux/amd64 and linux/arm64, under 40 MB compressed. No external services required.
 
 ## Quick start
@@ -49,7 +49,7 @@ docker run -d --name rackend -v rackend_data:/data -p 8080:8080 ghcr.io/axanet/r
 docker logs rackend    # prints a one-time link to create the first superuser
 ```
 
-The admin UI is at <http://localhost:8080/_/>, the API under `/api/`. The [getting started guide](docs/guide/getting-started.md) takes you from here to a collection with access rules and a generated client in about five minutes; [deployment](docs/deployment.md) covers storage, reverse proxies, email, sign-in providers, monitoring, backups and upgrades.
+The admin UI is at <http://localhost:8080/_/>, the API under `/api/`. The [getting started guide](https://rackend.axanet.ch/docs/getting-started/) takes you from here to a collection with access rules and a generated client in about five minutes; [Run rackend](https://rackend.axanet.ch/docs/run/docker/) covers storage, reverse proxies, email, sign-in providers, monitoring, backups and upgrades. The [documentation](https://rackend.axanet.ch/docs/) is versioned: pick the version you run.
 
 ## Develop
 
@@ -76,7 +76,7 @@ crates/rackend      the binary and composition root
 admin-ui            SvelteKit admin UI, embedded in the binary
 ```
 
-Architecture decisions are recorded in [docs/adr](docs/adr); error responses are documented in [docs/errors.md](docs/errors.md), the threat model in [docs/threat-model.md](docs/threat-model.md).
+Architecture decisions are recorded in [docs/adr](docs/adr), the threat model in [docs/threat-model.md](docs/threat-model.md). The user documentation lives in [rackend-homepage](https://github.com/axanet/rackend-homepage): its `next` docs describe `main`, and `mise run test` and CI check the error codes and the getting started guide against them, so keep a checkout next to this one (or set `RACKEND_DOCS_DIR`).
 
 ## Contributing
 

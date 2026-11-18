@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
-# Runs docs/guide/getting-started.md verbatim (SPEC §20 M7): every ```bash
-# block, in order, in one shell, in an empty directory. The guide uses the
-# published image name; CI tags the image it just built with that name.
+# Runs the getting started guide verbatim (SPEC §20 M7): every ```bash block,
+# in order, in one shell, in an empty directory. The guide is the `next` docs
+# version in rackend-homepage (RACKEND_DOCS_DIR, else a checkout next to
+# rackend). It uses the published image name; CI tags the image it just built
+# with that name.
 # Usage: scripts/getting-started.sh
 set -euo pipefail
 root="$(git rev-parse --show-toplevel)"
-guide="$root/docs/guide/getting-started.md"
+docs="${RACKEND_DOCS_DIR:-$root/../rackend-homepage/src/content/docs/docs/next}"
+guide="$docs/getting-started.mdx"
+[ -f "$guide" ] || { echo "$guide not found: clone axanet/rackend-homepage next to rackend or set RACKEND_DOCS_DIR"; exit 1; }
 work="$(mktemp -d)"
 cleanup() {
   docker rm -f rackend >/dev/null 2>&1 || true
@@ -28,6 +32,8 @@ bash -euo pipefail guide.sh | tee output.txt
 # What a reader should see.
 grep -q '"posts"' output.txt
 grep -qx '{"title":"Hello, rackend"}' output.txt   # anonymous list
-! grep -qx '{"title":"A draft"}' output.txt        # the draft stays hidden
+if grep -qx '{"title":"A draft"}' output.txt; then  # the draft stays hidden
+  echo "the anonymous list shows the draft"; exit 1
+fi
 grep -q '/api/collections/posts/records' output.txt
 echo "getting started guide works"

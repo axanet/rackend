@@ -419,7 +419,7 @@ pub async fn authorize_post(
 
 fn oauth_error(e: &OAuthError) -> Response {
     let mut body = json!({ "error": e.error, "error_description": e.description });
-    // The RFC 9457 members too (docs/errors.md, protocol-mandated formats).
+    // The RFC 9457 members too (docs: reference/errors, protocol-mandated formats).
     body["status"] = json!(e.status);
     body["title"] = json!(e.error);
     body["detail"] = json!(e.description);
