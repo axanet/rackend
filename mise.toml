@@ -68,7 +68,7 @@ description = "Install the git hooks from cog.toml (commit-msg: Conventional Com
 run = "cog install-hook --all --overwrite"
 
 [tasks.release]
-description = "Cut a release from main, version from the commits since the latest tag: mise run release [--pre alpha] [--dry-run]"
+description = "Cut a release from main, version from the commits since the latest tag: mise run release [--pre alpha | --version x.y.z] [--dry-run]"
 run = "scripts/release.sh"
 
 [tasks.fmt]

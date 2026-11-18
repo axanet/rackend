@@ -16,6 +16,10 @@ on:
         description: "Pre-release identifier, e.g. alpha for 0.2.0-alpha.1. Empty for a stable release."
         required: false
         default: ""
+      version:
+        description: "Exact version instead of the one from the commits, e.g. 1.0.0. Empty in most cases."
+        required: false
+        default: ""
   push:
     tags: ["[0-9]+.[0-9]+.[0-9]+*"]
 
@@ -71,11 +75,12 @@ jobs:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           APP_SLUG: ${{ steps.app.outputs.app-slug }}
           PRE: ${{ inputs.pre }}
+          VERSION: ${{ inputs.version }}
         run: |
           bot="${APP_SLUG}[bot]"
           git config user.name "$bot"
           git config user.email "$(gh api "users/$bot" --jq .id)+$bot@users.noreply.github.com"
-          scripts/release.sh ${PRE:+--pre "$PRE"}
+          scripts/release.sh ${PRE:+--pre "$PRE"} ${VERSION:+--version "$VERSION"}
       - id: tag
         run: |
           if [ "$GITHUB_EVENT_NAME" = push ]; then tag="$GITHUB_REF_NAME"; else tag=$(git describe --tags --exact-match HEAD); fi

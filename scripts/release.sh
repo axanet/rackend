@@ -5,21 +5,28 @@
 # both; the tag builds and publishes the image (.github/workflows/release.yml).
 # Usually started from GitHub (Actions, release, Run workflow), which also
 # checks that CI passed on the commit.
-# Usage: scripts/release.sh [--pre <identifier>] [--dry-run]
-#   --pre alpha   pre-release, e.g. 0.2.0-alpha.1, then 0.2.0-alpha.2
-#   --dry-run     print the next version, change nothing
+# Usage: scripts/release.sh [--pre <identifier> | --version <x.y.z>] [--dry-run]
+#   --pre alpha       pre-release, e.g. 0.2.0-alpha.1, then 0.2.0-alpha.2
+#   --version 1.0.0   this version instead of the one from the commits; the
+#                     only way to 1.0.0, as breaking changes in 0.x bump the minor
+#   --dry-run         print the next version, change nothing
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
-usage() { echo "usage: scripts/release.sh [--pre <identifier>] [--dry-run]" >&2; exit 2; }
-args=(--auto)
+usage() { echo "usage: scripts/release.sh [--pre <identifier> | --version <x.y.z>] [--dry-run]" >&2; exit 2; }
+pre="" version="" dry=""
 while [ $# -gt 0 ]; do
   case "$1" in
-    --pre) [ -n "${2:-}" ] || usage; args+=(--pre "$2.*"); shift 2 ;;
-    --dry-run) args+=(--dry-run); shift ;;
+    --pre) [ -n "${2:-}" ] || usage; pre="$2"; shift 2 ;;
+    --version) [ -n "${2:-}" ] || usage; version="$2"; shift 2 ;;
+    --dry-run) dry=1; shift ;;
     *) usage ;;
   esac
 done
+[ -z "$pre" ] || [ -z "$version" ] || usage
+if [ -n "$version" ]; then args=(--version "$version"); else args=(--auto); fi
+if [ -n "$pre" ]; then args+=(--pre "$pre.*"); fi
+if [ -n "$dry" ]; then args+=(--dry-run); fi
 
 fail() { echo "release: $*" >&2; exit 1; }
 [ "$(git branch --show-current)" = main ] || fail "release from main only"

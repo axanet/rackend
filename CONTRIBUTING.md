@@ -63,11 +63,13 @@ Changes reach `main` through pull requests, merged by squash or rebase:
 ### Releasing
 
 Releases are cut on demand from `main`: **Actions, release, Run workflow**,
-with an optional pre-release identifier (`alpha` gives `0.2.0-alpha.1`). The
-workflow refuses a commit on which CI has not passed. It then
+with an optional pre-release identifier (`alpha` gives `0.2.0-alpha.1`) or an
+exact version. The exact version is the only way to 1.0.0, since breaking
+changes bump the minor version while it is 0.x. The workflow refuses a
+commit on which CI has not passed. It then
 
-1. takes the next version from the commits since the latest tag (`mise run
-   release --dry-run` shows it locally),
+1. takes the next version from the commits since the latest tag, unless an
+   exact one is given (`mise run release --dry-run` shows it locally),
 2. sets it in `Cargo.toml`, moves the `x.y` image tag in the docs (stable
    releases only), writes the upgrade fixture of the release and runs the
    upgrade tests against it,
