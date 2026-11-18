@@ -1,9 +1,10 @@
 // Connects a Y.Doc to a rackend `ydoc` field with y-websocket.
 //
 // Browsers cannot set headers on WebSockets, so each connection uses a
-// single-use ticket (valid 30 s) fetched with the access token. A fresh
-// ticket is fetched whenever the connection drops, before y-websocket
-// reconnects.
+// single-use ticket (valid 30 s) fetched with the access token. Tickets live
+// in the memory of the server that issued them, so a restart forgets them:
+// after every closed connection, failed attempts included, a fresh ticket is
+// fetched before y-websocket tries again.
 import * as decoding from 'lib0/decoding';
 import { WebsocketProvider } from 'y-websocket';
 import type * as Y from 'yjs';
@@ -51,9 +52,12 @@ export async function connect(
 		const body = new TextDecoder().decode(decoding.readVarUint8Array(decoder));
 		onError(JSON.parse(body));
 	};
+	// Not `status: disconnected`: that only fires when an open connection
+	// drops, so a ticket the server rejects (say, one the previous process
+	// issued while shutting down) would be retried forever.
 	let refreshing = false;
-	provider.on('status', async ({ status }) => {
-		if (status !== 'disconnected' || refreshing) return;
+	provider.on('connection-close', async () => {
+		if (refreshing) return;
 		refreshing = true;
 		// The server may be restarting: keep trying until a ticket arrives.
 		while (provider.shouldConnect) {
