@@ -3667,7 +3667,7 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "rackend"
-version = "0.0.0-alpha"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -3716,7 +3716,7 @@ dependencies = [
 
 [[package]]
 name = "rackend-blob-fs"
-version = "0.0.0-alpha"
+version = "0.0.1"
 dependencies = [
  "rackend-core",
  "tempfile",
@@ -3728,7 +3728,7 @@ dependencies = [
 
 [[package]]
 name = "rackend-blob-s3"
-version = "0.0.0-alpha"
+version = "0.0.1"
 dependencies = [
  "bytes",
  "futures-util",
@@ -3746,7 +3746,7 @@ dependencies = [
 
 [[package]]
 name = "rackend-core"
-version = "0.0.0-alpha"
+version = "0.0.1"
 dependencies = [
  "argon2 0.6.0",
  "base64 0.23.1",
@@ -3772,7 +3772,7 @@ dependencies = [
 
 [[package]]
 name = "rackend-host-metrics"
-version = "0.0.0-alpha"
+version = "0.0.1"
 dependencies = [
  "rackend-core",
  "sysinfo",
@@ -3781,7 +3781,7 @@ dependencies = [
 
 [[package]]
 name = "rackend-http"
-version = "0.0.0-alpha"
+version = "0.0.1"
 dependencies = [
  "askama",
  "axum",
@@ -3805,7 +3805,7 @@ dependencies = [
 
 [[package]]
 name = "rackend-idp-client"
-version = "0.0.0-alpha"
+version = "0.0.1"
 dependencies = [
  "http",
  "openidconnect",
@@ -3819,7 +3819,7 @@ dependencies = [
 
 [[package]]
 name = "rackend-imaging"
-version = "0.0.0-alpha"
+version = "0.0.1"
 dependencies = [
  "fast_image_resize",
  "image",
@@ -3832,7 +3832,7 @@ dependencies = [
 
 [[package]]
 name = "rackend-mail-smtp"
-version = "0.0.0-alpha"
+version = "0.0.1"
 dependencies = [
  "lettre",
  "rackend-core",
@@ -3842,7 +3842,7 @@ dependencies = [
 
 [[package]]
 name = "rackend-store-sqlite"
-version = "0.0.0-alpha"
+version = "0.0.1"
 dependencies = [
  "fs4",
  "proptest",

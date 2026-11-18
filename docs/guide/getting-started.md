@@ -10,7 +10,7 @@ You need Docker, `curl` and `jq`. Every command below runs as is in a terminal; 
 docker run -d --name rackend -p 8080:8080 -v rackend_data:/data \
   -e RACKEND_SUPERUSER_EMAIL=admin@example.com \
   -e RACKEND_SUPERUSER_PASSWORD='a long admin password' \
-  ghcr.io/axanet/rackend:0.1
+  ghcr.io/axanet/rackend:0.0
 ```
 
 The two variables create the first superuser, so this guide needs no browser. Without them, rackend prints a one-time setup link in its log (`docker logs rackend`); open it to create the superuser in the admin UI.

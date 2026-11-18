@@ -3,7 +3,7 @@
 ## Quick start
 
 ```sh
-docker run -d --name rackend -v rackend_data:/data -p 8080:8080 ghcr.io/axanet/rackend:0.1
+docker run -d --name rackend -v rackend_data:/data -p 8080:8080 ghcr.io/axanet/rackend:0.0
 ```
 
 No environment variables are required. Everything except the few bootstrap variables below is configured at runtime in the admin UI at `/_/`.

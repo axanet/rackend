@@ -45,7 +45,7 @@
 ## Quick start
 
 ```sh
-docker run -d --name rackend -v rackend_data:/data -p 8080:8080 ghcr.io/axanet/rackend:0.1
+docker run -d --name rackend -v rackend_data:/data -p 8080:8080 ghcr.io/axanet/rackend:0.0
 docker logs rackend    # prints a one-time link to create the first superuser
 ```
 
