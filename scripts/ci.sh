@@ -14,8 +14,12 @@ case "${1:-}" in
     # fixup!/squash! commits must not land. Before the first release the
     # default starts after "Initial commit", which predates the convention.
     range="${2:-}"
-    # A push that creates the branch has no "before" commit.
-    case "$range" in 0000000000000000000000000000000000000000..*) range="" ;; esac
+    # A push that creates the branch has no "before" commit, and after a
+    # force push "before" is no longer in the history (nor in a fresh clone).
+    if [ -n "$range" ] && ! git merge-base --is-ancestor "${range%%..*}" "${range##*..}" 2>/dev/null; then
+      echo "commits: ${range%%..*} is not in the history of ${range##*..} (new branch or force push), checking the default range" >&2
+      range=""
+    fi
     if [ -z "$range" ]; then
       from=$(git describe --tags --abbrev=0 2>/dev/null || git rev-list --reverse HEAD | sed -n 2p)
       range="$from..HEAD"
