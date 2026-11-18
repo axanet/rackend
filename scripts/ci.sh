@@ -37,6 +37,9 @@ case "${1:-}" in
     usage="usage: scripts/ci.sh pr-title TITLE BASE..HEAD"
     title="${2:?$usage}"
     range="${3:?$usage}"
+    # cog verify reads the author from git; CI checkouts have no identity.
+    git config user.name >/dev/null || git config user.name ci
+    git config user.email >/dev/null || git config user.email ci@localhost
     if ! out=$(cog verify "$title" 2>&1); then
       echo "PR title: $out" >&2
       exit 1
