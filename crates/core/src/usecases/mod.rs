@@ -75,6 +75,8 @@ pub struct App {
     pub(crate) thumbs: files::Thumbs,
     /// A cleanup of removed files is running.
     pub(crate) file_cleanup_running: std::sync::atomic::AtomicBool,
+    /// Graceful shutdown has started; the HTTP layer refuses new requests.
+    shutting_down: std::sync::atomic::AtomicBool,
     /// The logs database.
     pub logs: Arc<dyn LogsStore>,
     /// Host and process metrics.
@@ -160,6 +162,7 @@ impl App {
             images: cfg.images,
             thumbs: files::Thumbs::default(),
             file_cleanup_running: std::sync::atomic::AtomicBool::new(false),
+            shutting_down: std::sync::atomic::AtomicBool::new(false),
             logs: cfg.logs,
             host: cfg.host,
             backups: cfg.backups,
@@ -211,6 +214,20 @@ impl App {
             Err(p) => *p.into_inner() = s,
         }
         Ok(())
+    }
+
+    /// Starts graceful shutdown (SPEC §5.6): from now on the HTTP layer
+    /// answers new requests with 503, so a draining instance starts no work
+    /// that dies with it (such as collab tickets only this process knows).
+    pub fn begin_shutdown(&self) {
+        self.shutting_down
+            .store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    /// Whether graceful shutdown has started.
+    pub fn is_shutting_down(&self) -> bool {
+        self.shutting_down
+            .load(std::sync::atomic::Ordering::Acquire)
     }
 
     /// Current settings.

@@ -399,3 +399,26 @@ async fn head_request_ids_headers_and_ui() {
             .starts_with("text/html")
     );
 }
+
+/// Once graceful shutdown starts, new requests get the `unavailable`
+/// problem (SPEC §5.6): clients that reconnect at once, such as collab
+/// editors whose sockets were just closed, must not get work from the
+/// instance that is going away.
+#[tokio::test]
+async fn shutting_down_refuses_new_requests() {
+    let t = start().await;
+    let before = send(
+        &t.router,
+        request(Method::GET, "/api/collections", Some(&t.token), None),
+    )
+    .await;
+    assert_eq!(before.status, StatusCode::OK);
+
+    t.app.begin_shutdown();
+    for uri in ["/api/collections", "/api/health"] {
+        let r = send(&t.router, request(Method::GET, uri, Some(&t.token), None)).await;
+        assert_eq!(r.status, StatusCode::SERVICE_UNAVAILABLE, "{uri}");
+        let p = assert_problem(&r);
+        assert_eq!(p["code"], "unavailable", "{uri}");
+    }
+}

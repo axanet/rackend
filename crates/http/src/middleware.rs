@@ -14,6 +14,23 @@ use uuid::Uuid;
 
 use crate::problem::{PROBLEM_JSON, Problem, ProblemCode};
 
+/// Refuses new requests with 503 once graceful shutdown has started (SPEC
+/// §5.6). Requests already running finish; clients retry against the next
+/// instance.
+pub async fn refuse_while_shutting_down(
+    State(state): State<crate::AppState>,
+    req: Request,
+    next: Next,
+) -> Response {
+    if state.app().is_shutting_down() {
+        return crate::ApiError::from(rackend_core::Error::unavailable(
+            rackend_core::error::UnavailableReason::ShuttingDown,
+        ))
+        .into_response();
+    }
+    next.run(req).await
+}
+
 /// `X-Request-Id` header.
 pub static X_REQUEST_ID: HeaderName = HeaderName::from_static("x-request-id");
 
